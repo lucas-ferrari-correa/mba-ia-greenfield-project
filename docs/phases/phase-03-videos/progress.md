@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
-**Status:** in_progress
-**SIs:** 11/12 completed
+**Status:** completed
+**SIs:** 12/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -93,6 +93,18 @@
   - Objetos criados no bucket (original e thumbnail) são removidos no `afterAll`.
 
 ### SI-03.12 — OpenAPI e documentação de IA (CLAUDE.md) da fase de vídeos
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** `src/openapi-export.integration-spec.ts` (23, incluindo as 7 operações de `/videos` com status de sucesso e segurança) + `test/swagger.e2e-spec.ts` (7, incluindo as rotas de vídeo em `/api/docs-json`)
+- **Observations:**
+  - As anotações `@nestjs/swagger` foram feitas nos SIs de endpoint (ver SI-03.5); aqui ficaram o export do `openapi.json` e os testes.
+  - Limitação pré-existente, não corrigida (fora do escopo): `npm run openapi:export` roda com `ts-node`, sem o plugin CLI do Swagger, então request DTOs sem `@ApiProperty` saem com `properties: {}` no `openapi.json` — os `CreateVideoDto`/`CompleteUploadDto` ficam como o `RegisterDto` da fase 02 já ficava. Os DTOs de resposta (com `@ApiProperty`) saem completos.
+  - `CLAUDE.md` da raiz: seção "Videos (Phase 03)", fila "BullMQ on Redis" no lugar de "TBD", worker e storage descritos, exceção documentada do `S3_PUBLIC_ENDPOINT` na regra de rede Docker e linha do `next-frontend/` corrigida (o diretório existe desde a fase 02; dizia "not yet initialized").
+  - `nestjs-project/CLAUDE.md`: novos serviços e checagens de prontidão, scripts do worker, notas de teste de vídeo/fila e a separação `dist/` × `dist-worker/`.
+
+## Final verification (Definition of Done)
+
+- `npm test -- --runInBand`: 35 suítes, 247 testes passando
+- `npm run test:e2e`: 8 suítes, 76 testes passando (inclui o fluxo completo com o `video-worker` real)
+- `npx tsc --noEmit`: exit 0
+- `npm run lint`: exit 0, 0 erros; 23 warnings `no-unsafe-argument` pré-existentes em `src/auth/auth.service.spec.ts` e `src/auth/auth.service.integration-spec.ts` (fase 02)
+- `docker compose down && docker compose up -d`: `db`, `mailpit`, `redis`, `minio`, `minio-init` (exit 0), `nestjs-api` e `video-worker` sobem

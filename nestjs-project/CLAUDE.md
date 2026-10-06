@@ -2,7 +2,7 @@
 
 ## Environment Startup Verification
 
-**Default behavior:** starting the environment means starting **only infrastructure services** (database, mail, etc.) — **never** start the NestJS application server unless the user explicitly asks to run/serve the project (e.g., "rode o projeto", "suba o servidor", "run the app").
+**Default behavior:** starting the environment means starting **only infrastructure services** (database, mail, Redis, MinIO, and the `video-worker`) — **never** start the NestJS application server unless the user explicitly asks to run/serve the project (e.g., "rode o projeto", "suba o servidor", "run the app").
 
 After starting infrastructure, always confirm the containers are up before proceeding:
 
@@ -13,6 +13,9 @@ docker compose ps   # all services must show status "running"
 Then verify each infrastructure service is actually ready to accept connections — not just running:
 
 - **PostgreSQL:** `docker compose exec db pg_isready -U streamtube` — expect `accepting connections`
+- **Redis:** `docker compose exec redis redis-cli ping` — expect `PONG`
+- **MinIO:** `docker compose ps minio` shows `healthy` (healthcheck: `mc ready local`, which queries `/minio/health/live`); `minio-init` must have exited with code `0` (it creates the `streamtube-videos` bucket)
+- **Video worker:** `docker compose logs video-worker` ends with `WorkerModule dependencies initialized`
 
 Only start the NestJS dev server (`npm run start:dev`) when the user **explicitly** asks to run the application — never as part of "start the environment".
 
@@ -34,6 +37,11 @@ docker compose exec nestjs-api npm run start:dev
 Services:
 - `nestjs-api` — NestJS API, port `3000`
 - `db` — PostgreSQL 17, port `5432`, database `streamtube`, user/password `streamtube`
+- `mailpit` — SMTP `1025`, web UI `8025`
+- `redis` — Redis 8.10.2 for the BullMQ queue (`maxmemory-policy noeviction`, AOF on); internal network only, no host port
+- `minio` — S3-compatible storage (`coollabsio/minio:RELEASE.2025-10-15T17-29-55Z`), API `9000`, console `9001`, root credentials = `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY`
+- `minio-init` — one-shot: creates the private bucket `S3_BUCKET` (idempotent)
+- `video-worker` — same image as `nestjs-api` (with FFmpeg), runs `npm run start:worker` and consumes the `video-processing` queue
 
 All verification and teardown commands run on the **host machine**:
 
@@ -62,6 +70,8 @@ docker compose down
 npm run start:dev                        # Dev server with hot-reload
 npm run build                            # Compile to dist/
 npm run start:prod                       # Run compiled build
+npm run start:worker                     # Video worker in watch mode (the video-worker service already runs it)
+npm run start:worker:prod                # Run the compiled worker (dist-worker/worker.js)
 
 npm test                                 # Unit tests
 npm run test:watch                       # Unit tests in watch mode
@@ -95,11 +105,22 @@ Parallel execution causes FK violations, deadlocks, and cross-suite contaminatio
 
 During active development, run only the tests related to the file being changed (`npm test -- path/to/file.spec.ts`). Before declaring a task done, run the full suite — see the global `CLAUDE.md` → "Definition of Done (Technical)".
 
+### Video and queue tests
+
+- Presigned URLs are consumed from inside the `nestjs-api` container, where `localhost:9000` does not reach MinIO: integration/e2e suites set `S3_PUBLIC_ENDPOINT=http://minio:9000` before bootstrapping.
+- Real multipart uploads in tests use `VIDEO_UPLOAD_PART_SIZE_BYTES=5242880` (5 MiB, the S3 minimum part size).
+- The `video-worker` service consumes the default queue prefix (`QUEUE_PREFIX=bull`). Suites that assert on queue contents set an isolated `QUEUE_PREFIX=test-<random>` so the worker never consumes their jobs; the full-flow e2e (`test/videos-flow.e2e-spec.ts`) keeps the default prefix and needs the `video-worker` running.
+- Shared e2e bootstrap and helpers: `test/helpers/videos-e2e.setup.ts`. Media fixtures are generated at test time with `ffmpeg -f lavfi` (`test/fixtures/generate-video-fixtures.ts`); no video file is versioned.
+
+## Worker Build Output
+
+The API builds to `dist/` and the worker builds to `dist-worker/` (`tsconfig.worker.json`, used by `start:worker` via `nest start --path`). They must stay separate: `deleteOutDir: true` in `nest-cli.json` makes each watch build delete its own output directory.
+
 ## Long-running Processes
 
 Commands that never exit (dev server, watch modes) must be run in background in the Bash tool — otherwise the agent blocks indefinitely waiting for the process to return.
 
-This applies to: `start:dev`, `start:prod`, `test:watch`, and any other persistent process.
+This applies to: `start:dev`, `start:prod`, `start:worker`, `test:watch`, and any other persistent process.
 
 ## Test Type Selection
 

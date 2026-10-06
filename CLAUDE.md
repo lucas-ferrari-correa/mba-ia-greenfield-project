@@ -10,9 +10,9 @@ More info in the project overview: [docs/project-plan.md](docs/project-plan.md)
 
 This is a monorepo with two main areas:
 
-- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express). Contains modules for users, channels, videos, comments, etc.
+- `nestjs-project/` — Backend API (NestJS 11, TypeScript, Express) and the video worker. Modules: `auth`, `users`, `channels`, `mail`, `storage`, `videos`, `video-processing`, plus `common`, `config`, `database`, `swagger`.
 - `docs/` — Project documentation, architecture diagrams, and planning.
-- `next-frontend/` (Next.js) — not yet initialized
+- `next-frontend/` (Next.js) — frontend for Phases 01–02 (auth screens); the video UI is not implemented yet (planned for later phases).
 
 ## Architecture (C4 Container Diagram)
 
@@ -20,11 +20,23 @@ See `docs/diagrams/software-arch.mermaid` for the full diagram. Key containers:
 
 - **Frontend** (Next.js) → calls API via REST, streams from Object Storage
 - **API** (Nest.js) → business rules, auth, reads/writes DB, uploads to storage, publishes jobs to queue, sends emails
-- **Video Worker** (FFmpeg) → consumes jobs from queue, processes videos, updates DB and storage
+- **Video Worker** (NestJS standalone app + FFmpeg, `video-worker` Compose service) → consumes jobs from queue, extracts metadata and thumbnail, updates DB and storage
 - **Database** (PostgreSQL) → users, channels, videos, comments, likes
-- **Object Storage** (S3/MinIO) → video files and thumbnails
-- **Message Queue** (TBD) → video processing job queue
+- **Object Storage** (S3 API; MinIO `coollabsio/minio` image locally, AWS S3 in production) → video files and thumbnails
+- **Message Queue** (BullMQ on Redis, `redis` Compose service) → video processing job queue
 - **Email Service** (SMTP) → account confirmation and password recovery
+
+## Videos (Phase 03)
+
+Upload, processing and delivery of videos. Plan and decisions: `docs/phases/phase-03-videos/` and `docs/decisions/technical-decisions-phase-03-videos.md`.
+
+- **Upload (up to 10 GiB, never through the API):** `POST /videos` pre-registers the video as `draft` in the caller's channel, starts an S3 multipart upload and returns one presigned `UploadPart` URL per part; the client `PUT`s the parts straight to storage. `GET /videos/:id/upload` lists stored parts and re-signs the missing ones (resume). `POST /videos/:id/upload/complete` completes the multipart, rejects objects above `VIDEO_MAX_SIZE_BYTES` (video → `failed`, never enqueued) and enqueues `process-video`.
+- **Status lifecycle:** `draft → processing → ready | failed` (`videos.status`, enum `video_status`).
+- **Processing:** the `video-worker` process consumes queue `video-processing` (job `process-video`, `jobId` = video id, 3 attempts with exponential backoff), runs `ffprobe` through an internal presigned URL, stores `duration_seconds`, `width`, `height`, `video_codec`, raw `metadata` (jsonb) and a JPEG thumbnail at 10% of the duration (`videos/{id}/thumbnail.jpg`).
+- **Unique URL:** each video has an 11-char base62 `public_id` (unique index); owner routes use the UUID, public routes use the `public_id`.
+- **Streaming and download:** `GET /videos/:publicId/stream` and `GET /videos/:publicId/download` are public, answer only for `ready` videos (404 otherwise, owner included) and redirect (302) to presigned storage URLs; storage serves `Range` requests with `206`.
+- **Owner endpoints:** `GET /videos/:id` (status, metadata, `thumbnail_url`) and `DELETE /videos/:id` (abort a `draft` upload).
+- **Presigned URL hosts:** server-side calls use `S3_ENDPOINT` (`http://minio:9000`); URLs handed to clients are signed with `S3_PUBLIC_ENDPOINT` (`http://localhost:9000` in dev).
 
 ## Docker Networking
 
@@ -34,6 +46,7 @@ Inside a container, `localhost` refers to the container itself, not the host mac
 
 - **Correct:** `DB_HOST=db` (the Compose service name)
 - **Wrong:** `DB_HOST=localhost`
+- **Only exception:** `S3_PUBLIC_ENDPOINT` (`http://localhost:9000` in dev) is the browser-facing storage address. It is used only to *sign* presigned URLs handed to clients — never for container-to-container calls, which use `S3_ENDPOINT=http://minio:9000`.
 
 This applies to all environment variables, configuration files, and code that references service hosts.
 
