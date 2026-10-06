@@ -3,9 +3,9 @@ kind: phase
 name: phase-03-videos
 test_specs_aware: true
 sources_mtime:
-  docs/phases/phase-03-videos/context.md: "2026-10-06T07:48:25-03:00"
-  docs/phases/phase-03-videos/library-refs.md: "2026-10-06T07:34:38-03:00"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-10-06T07:33:32-03:00"
+  docs/phases/phase-03-videos/context.md: "2026-10-06T09:33:47-03:00"
+  docs/phases/phase-03-videos/library-refs.md: "2026-10-06T09:33:47-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-10-06T09:33:38-03:00"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-10-05T18:27:37-03:00"
 ---
 
@@ -25,7 +25,7 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 
 **Technical actions:**
 
-1. Instalar no `nestjs-project` (dentro do container): `bullmq@6.3.11`, `@nestjs/bullmq@12.0.0`, `ioredis@5.11.1` (peer opcional do BullMQ 6 — instalação explícita), `@aws-sdk/client-s3@3.1146.0`, `@aws-sdk/s3-request-presigner@3.1146.0` (per `phase-03-videos/TD-01`, `phase-03-videos/TD-03`)
+1. Instalar no `nestjs-project` (dentro do container): `bullmq@6.3.11`, `@nestjs/bullmq@11.0.5` (12.0.0 é ESM-only — ver revisão de 2026-10-06 da `phase-03-videos/TD-01`), `ioredis@5.11.1` (peer opcional do BullMQ 6 — instalação explícita), `@aws-sdk/client-s3@3.1146.0`, `@aws-sdk/s3-request-presigner@3.1146.0` (per `phase-03-videos/TD-01`, `phase-03-videos/TD-03`)
 2. Criar `src/config/storage.config.ts` — `registerAs('storage', ...)` lendo `S3_ENDPOINT` (default `http://minio:9000`, chamadas reais), `S3_PUBLIC_ENDPOINT` (default `http://localhost:9000`, usado só para assinar URLs entregues ao cliente), `S3_REGION` (default `us-east-1`), `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET` (default `streamtube-videos`) (per `phase-03-videos/TD-04`, `phase-03-videos/TD-05`, `phase-01-configuracao-base/TD-03`)
 3. Criar `src/config/queue.config.ts` — `registerAs('queue', ...)` lendo `REDIS_HOST` (default `redis`, nome do serviço Compose), `REDIS_PORT` (default `6379`) e `QUEUE_PREFIX` (default `bull`, o prefixo padrão do BullMQ) (per `phase-03-videos/TD-01`)
 4. Criar `src/config/video.config.ts` — `registerAs('video', ...)` lendo `VIDEO_MAX_SIZE_BYTES` (default `10737418240`), `VIDEO_UPLOAD_PART_SIZE_BYTES` (default `104857600`), `VIDEO_UPLOAD_URL_TTL_SECONDS` (default `3600`), `VIDEO_STREAM_URL_TTL_SECONDS` (default `21600`), `VIDEO_DOWNLOAD_URL_TTL_SECONDS` (default `3600`), `VIDEO_WORKER_READ_URL_TTL_SECONDS` (default `900`) (per `phase-03-videos/TD-02`, `phase-03-videos/TD-09`, `phase-03-videos/TD-12`)
