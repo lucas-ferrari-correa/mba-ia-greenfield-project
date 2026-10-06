@@ -47,9 +47,10 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (BullMQ + Redis)** — the only option where retries with backoff, idempotent job IDs and an official Nest 11 module come out of the box; the cost is one `redis` container configured with `noeviction` + AOF. pg-boss's transactional enqueue is attractive, but the idempotent `jobId` + retryable "complete upload" endpoint (TD-06) covers the same consistency gap without loading the primary DB.
 
 **Decision:** A (BullMQ on Redis)
-**Libraries:** bullmq@6.3.11, @nestjs/bullmq@12.0.0, ioredis@5.11.1, redis:8.10.2 (Docker image)
+**Libraries:** bullmq@6.3.11, @nestjs/bullmq@11.0.5, ioredis@5.11.1, redis:8.10.2 (Docker image)
 **Revisions:**
 - 2026-10-06 — Library pins fixed; BullMQ 6 makes `ioredis` an optional peer dependency, so it is installed explicitly at the version BullMQ 6.3.11 tests against (5.11.1); Redis runs with `maxmemory-policy noeviction` + `appendonly yes`. Rationale: MD-1 (validation) — libraries pinned via context7 + npm registry, see `library-refs.md`.
+- 2026-10-06 — `@nestjs/bullmq` pin changed from `12.0.0` to `11.0.5`. Rationale: 12.0.0 (and its `@nestjs/bull-shared@12.0.0`) is published as ESM-only (`"type": "module"`), which the CommonJS project and its ts-jest suites cannot load (`SyntaxError: Unexpected token 'export'`); 11.0.5 is CommonJS, supports Nest 11 and already declares `bullmq ^6.0.0` as a peer, so `bullmq@6.3.11` stays. Found during `/implement` SI-03.6; approved by the user.
 
 ---
 

@@ -3,7 +3,7 @@ kind: phase
 name: phase-03-videos
 sources_mtime:
   docs/project-plan.md: "2026-10-05T18:21:55-03:00"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-10-06T07:33:32-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-10-06T09:33:38-03:00"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-10-05T18:27:37-03:00"
   docs/phases/phase-01-configuracao-base/context.md: "2026-10-05T18:27:37-03:00"
   docs/phases/phase-02-auth/context.md: "2026-10-05T18:27:37-03:00"
@@ -48,7 +48,7 @@ sources_mtime:
 
 | Ref | Source | Scope | Topic | Status | Decision | Libraries |
 |-----|--------|-------|-------|--------|----------|-----------|
-| phase-03-videos/TD-01 | phase | Backend | Message Queue Technology | decided | A (BullMQ on Redis) | bullmq@6.3.11, @nestjs/bullmq@12.0.0, ioredis@5.11.1, redis:8.10.2 (Docker image) |
+| phase-03-videos/TD-01 | phase | Backend | Message Queue Technology | decided | A (BullMQ on Redis) | bullmq@6.3.11, @nestjs/bullmq@11.0.5, ioredis@5.11.1, redis:8.10.2 (Docker image) |
 |     └─ Last revision: 2026-10-06 — Library pins fixed; BullMQ 6 makes `ioredis` an optional peer dependency, so i… | | | | | | |
 | phase-03-videos/TD-02 | phase | Backend | Large-File Upload Protocol (up to 10GB without passing thr… | decided | A (S3 Multipart Upload with presigned part URLs) | — |
 |     └─ Last revision: 2026-10-06 — The API is the single owner of the actual-size check: in `POST /videos/:id/upl… | | | | | | |
@@ -94,7 +94,7 @@ _Source files:_
 ### phase-03-videos/TD-01
 
 **Recommendation:** the only option where retries with backoff, idempotent job IDs and an official Nest 11 module come out of the box; the cost is one `redis` container configured with `noeviction` + AOF. pg-boss's transactional enqueue is attractive, but the idempotent `jobId` + retryable "complete upload" endpoint (TD-06) covers the same consistency gap without loading the primary DB.
-**Libraries:** bullmq@6.3.11, @nestjs/bullmq@12.0.0, ioredis@5.11.1, redis:8.10.2 (Docker image)
+**Libraries:** bullmq@6.3.11, @nestjs/bullmq@11.0.5, ioredis@5.11.1, redis:8.10.2 (Docker image)
 
 **Revisions:**
 - 2026-10-06 — Library pins fixed; BullMQ 6 makes `ioredis` an optional peer dependency, so it is installed explicitly at the version BullMQ 6.3.11 tests against (5.11.1); Redis runs with `maxmemory-policy noeviction` + `appendonly yes`. Rationale: MD-1 (validation) — libraries pinned via context7 + npm registry, see `library-refs.md`.

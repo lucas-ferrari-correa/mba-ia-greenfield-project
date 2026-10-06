@@ -5,7 +5,7 @@ libs:
     context7_id: "/taskforcesh/bullmq"
     fetched_at: "2026-10-06T07:34:07-03:00"
   "@nestjs/bullmq":
-    version: "12.0.0"
+    version: "11.0.5"
     context7_id: "/nestjs/bull"
     fetched_at: "2026-10-06T07:34:07-03:00"
   "ioredis":
@@ -33,7 +33,7 @@ libs:
     context7_id: "—"
     fetched_at: "2026-10-06T07:34:07-03:00"
 sources_mtime:
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-10-06T07:33:32-03:00"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-10-06T09:33:38-03:00"
 ---
 
 # phase-03-videos — Library References
@@ -52,7 +52,8 @@ Pins confirmed on 2026-10-06 against the npm registry (`npm view`) and context7 
 
 ### @nestjs/bullmq
 
-- **Version:** `12.0.0` — peers `bullmq ^3 || ^4 || ^5 || ^6`, `@nestjs/core|common ^10 || ^11 || ^12` (compatible with the installed Nest 11). Depends on `@nestjs/bull-shared ^12.0.0`.
+- **Version:** `11.0.5` — CommonJS build; peers `bullmq ^3 || ^4 || ^5 || ^6`, `@nestjs/core|common ^10 || ^11` (compatible with the installed Nest 11). Depends on `@nestjs/bull-shared` 11.0.5.
+- **Why not 12.0.0:** `@nestjs/bullmq@12.0.0` and `@nestjs/bull-shared@12.0.0` are ESM-only (`"type": "module"`); the CommonJS project's ts-jest suites fail with `SyntaxError: Unexpected token 'export'` (see TD-01 revision of 2026-10-06). The API surface used here (`BullModule.forRootAsync`, `registerQueue`, `@InjectQueue`, `@Processor`/`WorkerHost`) is the same in 11.0.5.
 - **Root config:** `BullModule.forRootAsync({ imports, inject, useFactory: (cfg) => ({ connection: { host, port } }) })` — global shared config; fits the inherited `registerAs` + `ConfigType` pattern (phase-01-configuracao-base/TD-01, TD-03).
 - **Queue:** `BullModule.registerQueue({ name })` (or `registerQueueAsync`); inject with `@InjectQueue(name) queue: Queue`.
 - **Consumer (worker app):** `@Processor(name, { concurrency })` on a class extending `WorkerHost` implementing `async process(job: Job)`. Worker events via `@OnWorkerEvent('failed' | 'completed')`. `this.worker` is only available after `onModuleInit`.
