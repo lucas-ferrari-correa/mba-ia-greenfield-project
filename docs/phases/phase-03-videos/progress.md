@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 9/12 completed
+**SIs:** 10/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -77,9 +77,11 @@
   - API e worker compartilham o bind mount e o `dist/`; se o dev server da API (`start:dev`) e o worker rodarem em watch ao mesmo tempo, ambos compilam para o mesmo `dist/`.
 
 ### SI-03.10 — Endpoint GET /videos/:publicId/stream e GET /videos/:publicId/download
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 53 passing em `src/videos` + 5 e2e de `test/videos-stream-download.e2e-spec.ts` (spec `videos-stream-download.plan.md`); suítes completas verdes
+- **Observations:**
+  - Redirect via `@Redirect(undefined, 302)` retornando `{ url }`, sem acesso direto ao `Response` do Express.
+  - O teste de download usa `GET` na URL assinada: a assinatura cobre o método HTTP, então um `HEAD` responde 403.
 
 ### SI-03.11 — Teste e2e do fluxo completo de vídeo (fila, worker e MinIO reais)
 - **Status:** pending

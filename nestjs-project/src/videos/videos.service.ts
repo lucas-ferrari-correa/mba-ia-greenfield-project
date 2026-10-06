@@ -24,7 +24,7 @@ import {
   VideoDraftResponseDto,
 } from './dto/upload-session.dto';
 import { Video, VideoStatus } from './entities/video.entity';
-import { generatePublicId } from './public-id.util';
+import { generatePublicId, PUBLIC_ID_PATTERN } from './public-id.util';
 import { originalKey, PUBLIC_ID_MAX_ATTEMPTS } from './videos.constants';
 import {
   InvalidUploadPartsException,
@@ -40,6 +40,12 @@ const INVALID_PARTS_ERRORS = new Set([
   'EntityTooSmall',
   'NoSuchUpload',
 ]);
+
+/** Strips characters that would break or inject into a quoted header value. */
+export function sanitizeFilename(filename: string): string {
+  const cleaned = filename.replace(/["\\\r\n]/g, '').trim();
+  return cleaned || 'video';
+}
 
 function isInvalidPartsError(err: unknown): boolean {
   return err instanceof Error && INVALID_PARTS_ERRORS.has(err.name);
@@ -247,6 +253,37 @@ export class VideosService {
       );
     }
     await this.videoRepository.delete(video.id);
+  }
+
+  async getStreamUrl(publicId: string): Promise<string> {
+    const video = await this.findReadyByPublicId(publicId);
+    return this.storageService.presignGetObject(video.storage_key, {
+      audience: 'public',
+      ttlSeconds: this.config.streamUrlTtlSeconds,
+    });
+  }
+
+  async getDownloadUrl(publicId: string): Promise<string> {
+    const video = await this.findReadyByPublicId(publicId);
+    return this.storageService.presignGetObject(video.storage_key, {
+      audience: 'public',
+      ttlSeconds: this.config.downloadUrlTtlSeconds,
+      contentDisposition: `attachment; filename="${sanitizeFilename(video.original_filename)}"`,
+    });
+  }
+
+  /** Public lookup: anything but a `ready` video is reported as not found. */
+  async findReadyByPublicId(publicId: string): Promise<Video> {
+    if (!PUBLIC_ID_PATTERN.test(publicId)) {
+      throw new VideoNotFoundException();
+    }
+    const video = await this.videoRepository.findOneBy({
+      public_id: publicId,
+    });
+    if (!video || video.status !== VideoStatus.Ready) {
+      throw new VideoNotFoundException();
+    }
+    return video;
   }
 
   async findOwned(userId: string, id: string): Promise<Video> {

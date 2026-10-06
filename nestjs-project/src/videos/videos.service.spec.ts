@@ -5,7 +5,7 @@ import { Channel } from '../channels/entities/channel.entity';
 import { StorageService } from '../storage/storage.service';
 import { ProcessVideoJobData } from '../video-processing/video-processing.constants';
 import { Video, VideoStatus } from './entities/video.entity';
-import { VideosService } from './videos.service';
+import { sanitizeFilename, VideosService } from './videos.service';
 import {
   InvalidUploadPartsException,
   InvalidVideoStatusException,
@@ -58,6 +58,7 @@ describe('VideosService', () => {
     create: jest.Mock;
     save: jest.Mock;
     findOne: jest.Mock;
+    findOneBy: jest.Mock;
     update: jest.Mock;
     delete: jest.Mock;
   };
@@ -80,6 +81,7 @@ describe('VideosService', () => {
       create: jest.fn((data: Partial<Video>) => data),
       save: jest.fn((data: Partial<Video>) => Promise.resolve(data)),
       findOne: jest.fn(),
+      findOneBy: jest.fn(),
       update: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
     };
@@ -393,6 +395,80 @@ describe('VideosService', () => {
 
       expect(storage.abortMultipartUpload).not.toHaveBeenCalled();
       expect(repository.delete).toHaveBeenCalledWith('video-1');
+    });
+  });
+
+  describe('public delivery', () => {
+    it.each(['abc', 'AAAAAAAAAA!', 'AAAAAAAAAAAA'])(
+      'should report a malformed public id %p as not found without querying',
+      async (publicId) => {
+        await expect(service.getStreamUrl(publicId)).rejects.toBeInstanceOf(
+          VideoNotFoundException,
+        );
+        expect(repository.findOneBy).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should report an unknown public id as not found', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getStreamUrl('AAAAAAAAAAA')).rejects.toBeInstanceOf(
+        VideoNotFoundException,
+      );
+    });
+
+    it.each([VideoStatus.Draft, VideoStatus.Processing, VideoStatus.Failed])(
+      'should report a %s video as not found',
+      async (status) => {
+        repository.findOneBy.mockResolvedValue(makeVideo({ status }));
+
+        await expect(
+          service.getDownloadUrl('AAAAAAAAAAA'),
+        ).rejects.toBeInstanceOf(VideoNotFoundException);
+      },
+    );
+
+    it('should sign the stream URL with the stream TTL', async () => {
+      repository.findOneBy.mockResolvedValue(
+        makeVideo({ status: VideoStatus.Ready }),
+      );
+
+      await service.getStreamUrl('AAAAAAAAAAA');
+
+      expect(storage.presignGetObject).toHaveBeenCalledWith(
+        'videos/video-1/original',
+        { audience: 'public', ttlSeconds: config.streamUrlTtlSeconds },
+      );
+    });
+
+    it('should force an attachment with the sanitized original file name', async () => {
+      repository.findOneBy.mockResolvedValue(
+        makeVideo({
+          status: VideoStatus.Ready,
+          original_filename: 'my "clip"\r\n.mp4',
+        }),
+      );
+
+      await service.getDownloadUrl('AAAAAAAAAAA');
+
+      expect(storage.presignGetObject).toHaveBeenCalledWith(
+        'videos/video-1/original',
+        {
+          audience: 'public',
+          ttlSeconds: config.downloadUrlTtlSeconds,
+          contentDisposition: 'attachment; filename="my clip.mp4"',
+        },
+      );
+    });
+  });
+
+  describe('sanitizeFilename', () => {
+    it('should strip quotes, backslashes and line breaks', () => {
+      expect(sanitizeFilename('a"b\\c\r\nd.mp4')).toBe('abcd.mp4');
+    });
+
+    it('should fall back to a default name when nothing is left', () => {
+      expect(sanitizeFilename('"\r\n"')).toBe('video');
     });
   });
 });

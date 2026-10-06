@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Redirect,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -18,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { JwtPayload } from '../auth/auth.types';
+import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ApiErrorEnvelope } from '../common/openapi/api-error-envelope.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
@@ -203,5 +205,45 @@ export class VideosController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.videosService.abort(user.sub, id);
+  }
+
+  @Public()
+  @Get(':publicId/stream')
+  @Redirect(undefined, HttpStatus.FOUND)
+  @ApiOperation({
+    summary: 'Stream a ready video',
+    description:
+      'Redirects (302) to a presigned storage URL; storage serves Range requests with 206 Partial Content, so playback starts without a full download.',
+  })
+  @ApiResponse({ status: 302, description: 'Redirect to the presigned URL' })
+  @ApiResponse({
+    status: 404,
+    description: 'Unknown video or video not ready',
+    schema: errorSchema,
+  })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async stream(@Param('publicId') publicId: string): Promise<{ url: string }> {
+    return { url: await this.videosService.getStreamUrl(publicId) };
+  }
+
+  @Public()
+  @Get(':publicId/download')
+  @Redirect(undefined, HttpStatus.FOUND)
+  @ApiOperation({
+    summary: 'Download a ready video',
+    description:
+      'Redirects (302) to a presigned storage URL that forces Content-Disposition: attachment with the original file name.',
+  })
+  @ApiResponse({ status: 302, description: 'Redirect to the presigned URL' })
+  @ApiResponse({
+    status: 404,
+    description: 'Unknown video or video not ready',
+    schema: errorSchema,
+  })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async download(
+    @Param('publicId') publicId: string,
+  ): Promise<{ url: string }> {
+    return { url: await this.videosService.getDownloadUrl(publicId) };
   }
 }

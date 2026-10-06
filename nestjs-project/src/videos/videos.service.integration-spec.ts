@@ -203,4 +203,38 @@ describe('VideosService (integration — real DB + MinIO)', () => {
       `videos/${draft.id}/thumbnail.jpg`,
     );
   });
+
+  it('should stream a ready video through a URL that honors Range', async () => {
+    const draft = await service.createDraft(ownerId, dto);
+    const parts = await uploadAllParts(draft);
+    await service.completeUpload(ownerId, draft.id, { parts });
+    await videoRepository.update(draft.id, { status: VideoStatus.Ready });
+
+    const url = await service.getStreamUrl(draft.public_id);
+    const response = await fetch(url, {
+      headers: { Range: 'bytes=0-1023' },
+    });
+
+    expect(response.status).toBe(206);
+    expect((await response.arrayBuffer()).byteLength).toBe(1024);
+  });
+
+  it('should download with Content-Disposition attachment and the original name', async () => {
+    const draft = await service.createDraft(ownerId, {
+      ...dto,
+      file_name: 'my clip.mp4',
+    });
+    const parts = await uploadAllParts(draft);
+    await service.completeUpload(ownerId, draft.id, { parts });
+    await videoRepository.update(draft.id, { status: VideoStatus.Ready });
+
+    const url = await service.getDownloadUrl(draft.public_id);
+    // Presigned for GET: the signature covers the method, so HEAD would be 403.
+    const response = await fetch(url);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-disposition')).toBe(
+      'attachment; filename="my clip.mp4"',
+    );
+  });
 });

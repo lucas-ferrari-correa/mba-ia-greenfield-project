@@ -175,3 +175,17 @@ export async function uploadAllParts(
   }
   return parts;
 }
+
+/** PUTs a buffer to a presigned part URL and returns the ETag. */
+export async function uploadBuffer(url: string, body: Buffer): Promise<string> {
+  const response = await fetch(url, {
+    method: 'PUT',
+    body: new Uint8Array(body),
+  });
+  if (response.status !== 200) {
+    throw new Error(
+      `Part upload failed with ${response.status}: ${await response.text()}`,
+    );
+  }
+  return response.headers.get('etag') as string;
+}
