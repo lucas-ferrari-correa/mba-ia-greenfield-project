@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 7/12 completed
+**SIs:** 8/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -59,9 +59,11 @@
   - Mapeamento de resposta como `VideosService.getOwned` + `dto/video-response.dto.ts` (com `@ApiProperty`), em vez de função de mapeamento no próprio DTO; `findOwned` (SI-03.5) reaproveitado para o 404 de não-dono.
 
 ### SI-03.8 — Wrapper FFmpeg (ffprobe + thumbnail) e fixtures de vídeo
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 11 passing (`ffmpeg.service.integration-spec.ts`, `ffmpeg.service.spec.ts`); suíte unit/integration completa verde
+- **Observations:**
+  - Timeout testado com um servidor TCP local que aceita a conexão e nunca responde (o `ffprobe` fica preso na entrada HTTP até ser morto).
+  - `test/fixtures/generate-video-fixtures.ts` também exporta `generateMp4(path, { durationSeconds, bitrate })` para o SI-03.11 gerar o MP4 de ~11 MiB com bitrate constante.
 
 ### SI-03.9 — Video worker: entrypoint, processor e serviço no Compose
 - **Status:** pending
