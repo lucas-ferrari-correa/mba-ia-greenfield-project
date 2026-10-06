@@ -1,6 +1,9 @@
+import { randomUUID } from 'crypto';
+import { BullModule, getQueueToken } from '@nestjs/bullmq';
 import { ConfigModule } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Queue } from 'bullmq';
 import { DataSource, Repository } from 'typeorm';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { VerificationToken } from '../auth/entities/verification-token.entity';
@@ -14,6 +17,7 @@ import {
   createTestDataSource,
 } from '../test/create-test-data-source';
 import { User } from '../users/entities/user.entity';
+import { VIDEO_PROCESSING_QUEUE } from '../video-processing/video-processing.constants';
 import { Video, VideoStatus } from './entities/video.entity';
 import { VideosService } from './videos.service';
 
@@ -25,6 +29,7 @@ describe('VideosService (integration — real DB + MinIO)', () => {
   let moduleRef: TestingModule;
   let service: VideosService;
   let videoRepository: Repository<Video>;
+  let queue: Queue;
   let ownerId: string;
   let counter = 0;
   const savedEnv = {
@@ -46,6 +51,15 @@ describe('VideosService (integration — real DB + MinIO)', () => {
           load: [storageConfig, videoConfig],
         }),
         StorageModule,
+        // Isolated prefix: the Compose video-worker must not consume these jobs.
+        BullModule.forRoot({
+          connection: {
+            host: process.env.REDIS_HOST ?? 'redis',
+            port: Number(process.env.REDIS_PORT ?? 6379),
+          },
+          prefix: `test-${randomUUID()}`,
+        }),
+        BullModule.registerQueue({ name: VIDEO_PROCESSING_QUEUE }),
       ],
       providers: [
         VideosService,
@@ -54,9 +68,11 @@ describe('VideosService (integration — real DB + MinIO)', () => {
       ],
     }).compile();
     service = moduleRef.get(VideosService);
+    queue = moduleRef.get<Queue>(getQueueToken(VIDEO_PROCESSING_QUEUE));
   });
 
   afterAll(async () => {
+    await queue.obliterate({ force: true });
     await moduleRef.close();
     await dataSource.destroy();
     process.env.S3_PUBLIC_ENDPOINT = savedEnv.S3_PUBLIC_ENDPOINT;
@@ -113,5 +129,48 @@ describe('VideosService (integration — real DB + MinIO)', () => {
       },
     ]);
     expect(state.parts.map((p) => p.part_number)).toEqual([2, 3]);
+  });
+
+  async function uploadAllParts(draft: {
+    upload: { parts: { part_number: number; url: string }[] };
+  }) {
+    const parts: { part_number: number; etag: string }[] = [];
+    for (const part of draft.upload.parts) {
+      const response = await fetch(part.url, {
+        method: 'PUT',
+        body: Buffer.alloc(part.part_number < 3 ? 5 * MiB : MiB, 1),
+      });
+      expect(response.status).toBe(200);
+      parts.push({
+        part_number: part.part_number,
+        etag: response.headers.get('etag') as string,
+      });
+    }
+    return parts;
+  }
+
+  it('should enqueue process-video with jobId = video id after completion', async () => {
+    const draft = await service.createDraft(ownerId, dto);
+    const parts = await uploadAllParts(draft);
+
+    const result = await service.completeUpload(ownerId, draft.id, { parts });
+
+    expect(result.status).toBe(VideoStatus.Processing);
+    const row = await videoRepository.findOneByOrFail({ id: draft.id });
+    expect(row.size_bytes).toBe(String(11 * MiB));
+    const job = await queue.getJob(draft.id);
+    expect(job?.name).toBe('process-video');
+    expect(job?.data).toEqual({ videoId: draft.id });
+  });
+
+  it('should not duplicate the job when completion is repeated', async () => {
+    const draft = await service.createDraft(ownerId, dto);
+    const parts = await uploadAllParts(draft);
+    await service.completeUpload(ownerId, draft.id, { parts });
+
+    await service.completeUpload(ownerId, draft.id, { parts });
+
+    const jobs = await queue.getJobs(['waiting', 'delayed', 'active']);
+    expect(jobs.filter((job) => job.id === draft.id)).toHaveLength(1);
   });
 });

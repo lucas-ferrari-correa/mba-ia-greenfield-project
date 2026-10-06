@@ -1,3 +1,4 @@
+import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -15,7 +16,7 @@ import { VideosService } from './videos.service';
 const ALL_ENTITIES = [User, Channel, RefreshToken, VerificationToken, Video];
 
 describe('VideosModule', () => {
-  it('should compile with its repository, storage and channels dependencies', async () => {
+  it('should compile with its repository, queue, storage and channels dependencies', async () => {
     const module = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -25,6 +26,12 @@ describe('VideosModule', () => {
         TypeOrmModule.forRoot(
           createTestDataSource(ALL_ENTITIES, { synchronize: false }).options,
         ),
+        BullModule.forRoot({
+          connection: {
+            host: process.env.REDIS_HOST ?? 'redis',
+            port: Number(process.env.REDIS_PORT ?? 6379),
+          },
+        }),
         VideosModule,
       ],
     }).compile();

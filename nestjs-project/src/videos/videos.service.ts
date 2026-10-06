@@ -1,12 +1,22 @@
 import { randomUUID } from 'crypto';
+import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Queue } from 'bullmq';
 import { QueryFailedError, Repository } from 'typeorm';
 import { ChannelsService } from '../channels/channels.service';
 import videoConfig from '../config/video.config';
 import { StorageService } from '../storage/storage.service';
+import {
+  PROCESS_VIDEO_JOB,
+  PROCESS_VIDEO_JOB_OPTIONS,
+  ProcessVideoJobData,
+  VIDEO_PROCESSING_QUEUE,
+} from '../video-processing/video-processing.constants';
+import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateVideoDto } from './dto/create-video.dto';
+import { VideoProcessingResponseDto } from './dto/video-status-response.dto';
 import {
   PresignedPartDto,
   UploadStateResponseDto,
@@ -16,12 +26,23 @@ import { Video, VideoStatus } from './entities/video.entity';
 import { generatePublicId } from './public-id.util';
 import { originalKey, PUBLIC_ID_MAX_ATTEMPTS } from './videos.constants';
 import {
+  InvalidUploadPartsException,
   InvalidVideoStatusException,
   VideoNotFoundException,
   VideoTooLargeException,
 } from './videos.exceptions';
 
 const PG_UNIQUE_VIOLATION = '23505';
+const INVALID_PARTS_ERRORS = new Set([
+  'InvalidPart',
+  'InvalidPartOrder',
+  'EntityTooSmall',
+  'NoSuchUpload',
+]);
+
+function isInvalidPartsError(err: unknown): boolean {
+  return err instanceof Error && INVALID_PARTS_ERRORS.has(err.name);
+}
 
 function isPublicIdCollision(err: unknown): boolean {
   if (!(err instanceof QueryFailedError)) return false;
@@ -45,6 +66,8 @@ export class VideosService {
     private readonly channelsService: ChannelsService,
     @Inject(videoConfig.KEY)
     private readonly config: ConfigType<typeof videoConfig>,
+    @InjectQueue(VIDEO_PROCESSING_QUEUE)
+    private readonly processingQueue: Queue<ProcessVideoJobData>,
   ) {}
 
   async createDraft(
@@ -135,6 +158,56 @@ export class VideosService {
     };
   }
 
+  async completeUpload(
+    userId: string,
+    id: string,
+    dto: CompleteUploadDto,
+  ): Promise<VideoProcessingResponseDto> {
+    const video = await this.findOwned(userId, id);
+
+    if (video.status === VideoStatus.Processing) {
+      // Idempotent retry: same jobId never creates a duplicate job.
+      await this.enqueueProcessing(video.id);
+      return { id: video.id, status: video.status };
+    }
+    if (video.status !== VideoStatus.Draft || !video.upload_id) {
+      throw new InvalidVideoStatusException();
+    }
+
+    try {
+      await this.storageService.completeMultipartUpload(
+        video.storage_key,
+        video.upload_id,
+        dto.parts.map((part) => ({
+          partNumber: part.part_number,
+          etag: part.etag,
+        })),
+      );
+    } catch (err) {
+      if (isInvalidPartsError(err)) throw new InvalidUploadPartsException();
+      throw err;
+    }
+
+    const actualSize = await this.storageService.headObject(video.storage_key);
+    if (actualSize > this.config.maxSizeBytes) {
+      await this.storageService.deleteObject(video.storage_key);
+      await this.videoRepository.update(video.id, {
+        status: VideoStatus.Failed,
+        upload_id: null,
+        processing_error: `Uploaded object has ${actualSize} bytes, above the ${this.config.maxSizeBytes}-byte limit`,
+      });
+      throw new VideoTooLargeException();
+    }
+
+    await this.videoRepository.update(video.id, {
+      status: VideoStatus.Processing,
+      upload_id: null,
+      size_bytes: String(actualSize),
+    });
+    await this.enqueueProcessing(video.id);
+    return { id: video.id, status: VideoStatus.Processing };
+  }
+
   async findOwned(userId: string, id: string): Promise<Video> {
     const video = await this.videoRepository.findOne({
       where: { id },
@@ -162,6 +235,14 @@ export class VideosService {
       }
     }
     throw new Error('Unreachable: public id retries exhausted');
+  }
+
+  private async enqueueProcessing(videoId: string): Promise<void> {
+    await this.processingQueue.add(
+      PROCESS_VIDEO_JOB,
+      { videoId },
+      { ...PROCESS_VIDEO_JOB_OPTIONS, jobId: videoId },
+    );
   }
 
   private partCount(sizeBytes: number): number {

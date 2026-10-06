@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 5/12 completed
+**SIs:** 6/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -43,9 +43,13 @@
   - Correção fora do escopo do SI, em commit próprio (`8c41191`): `npm run test:e2e` não tinha `--runInBand` (o `nestjs-project/CLAUDE.md` já dizia que tinha); com 4 suítes no mesmo banco, auth e videos apagavam os dados umas das outras.
 
 ### SI-03.6 — Endpoint POST /videos/:id/upload/complete (conclusão + enfileiramento)
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 30 passing em `src/videos` (unit/integration/módulo) + 5 e2e de `test/videos-upload-complete.e2e-spec.ts` (spec `videos-upload-complete.plan.md`); suítes completas verdes
+- **Observations:**
+  - `@nestjs/bullmq` fixado em `11.0.5` em vez de `12.0.0` (aprovado pelo usuário; commit `2cbf211`): a 12.0.0 e a `@nestjs/bull-shared@12.0.0` são ESM-only e não carregam no projeto CommonJS sob ts-jest. Registrado como revisão da TD-01 no doc de decisões, no `context.md` (só a linha de versão) e no `library-refs.md`; `sources_mtime` de `library-refs.md`, `context.md` e `validation.md` atualizados.
+  - Fila, nome do job, payload e opções ficam em `src/video-processing/video-processing.constants.ts`, compartilhado entre API (produtor) e worker (SI-03.9).
+  - Testes de integração e e2e usam `QUEUE_PREFIX` isolado e fazem `obliterate` da fila no `afterAll`, para não deixar chaves no Redis compartilhado.
+  - Um `prettier --write src` reformatou sem querer os templates `.hbs` de e-mail; revertido antes do commit.
 
 ### SI-03.7 — Endpoint GET /videos/:id e DELETE /videos/:id (status do dono e abort)
 - **Status:** pending

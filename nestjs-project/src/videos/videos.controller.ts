@@ -19,7 +19,9 @@ import { Throttle } from '@nestjs/throttler';
 import type { JwtPayload } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ApiErrorEnvelope } from '../common/openapi/api-error-envelope.dto';
+import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateVideoDto } from './dto/create-video.dto';
+import { VideoProcessingResponseDto } from './dto/video-status-response.dto';
 import {
   UploadStateResponseDto,
   VideoDraftResponseDto,
@@ -96,5 +98,48 @@ export class VideosController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<UploadStateResponseDto> {
     return this.videosService.getUploadState(user.sub, id);
+  }
+
+  @Post(':id/upload/complete')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Complete the upload and start processing',
+    description:
+      'Completes the multipart upload, checks the stored size, moves the video to processing and enqueues the processing job. Repeating the call while processing is idempotent.',
+  })
+  @ApiResponse({ status: 202, type: VideoProcessingResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid body, id or upload parts',
+    schema: errorSchema,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Missing or invalid token',
+    schema: errorSchema,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: errorSchema,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is ready or failed',
+    schema: errorSchema,
+  })
+  @ApiResponse({
+    status: 413,
+    description: 'Stored object exceeds the size limit',
+    schema: errorSchema,
+  })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  completeUpload(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteUploadDto,
+  ): Promise<VideoProcessingResponseDto> {
+    return this.videosService.completeUpload(user.sub, id, dto);
   }
 }

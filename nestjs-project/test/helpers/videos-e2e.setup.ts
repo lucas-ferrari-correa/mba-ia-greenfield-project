@@ -121,3 +121,57 @@ export async function uploadPart(
   }
   return response.headers.get('etag') as string;
 }
+
+export interface DraftBody {
+  id: string;
+  public_id: string;
+  title: string;
+  status: string;
+  upload: {
+    part_size: number;
+    part_count: number;
+    parts: { part_number: number; url: string }[];
+    expires_at: string;
+  };
+}
+
+/** Creates a draft through the API and returns the response body. */
+export async function createDraftVideo(
+  ctx: VideosE2eContext,
+  token: string,
+  body: Record<string, unknown> = {},
+): Promise<DraftBody> {
+  const res = await request(ctx.app.getHttpServer())
+    .post('/videos')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      title: 'My video',
+      file_name: 'clip.mp4',
+      size_bytes: 11 * MiB,
+      content_type: 'video/mp4',
+      ...body,
+    })
+    .expect(201);
+  return res.body as DraftBody;
+}
+
+/**
+ * Uploads every part of a draft (5 MiB each, the last one with the
+ * remainder of `totalBytes`) and returns the parts list for /complete.
+ */
+export async function uploadAllParts(
+  draft: DraftBody,
+  totalBytes: number,
+): Promise<{ part_number: number; etag: string }[]> {
+  const parts: { part_number: number; etag: string }[] = [];
+  let remaining = totalBytes;
+  for (const part of draft.upload.parts) {
+    const size = Math.min(draft.upload.part_size, remaining);
+    remaining -= size;
+    parts.push({
+      part_number: part.part_number,
+      etag: await uploadPart(part.url, size, part.part_number),
+    });
+  }
+  return parts;
+}

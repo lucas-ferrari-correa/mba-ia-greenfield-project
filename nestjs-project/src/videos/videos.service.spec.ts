@@ -1,10 +1,13 @@
+import { Queue } from 'bullmq';
 import { QueryFailedError, Repository } from 'typeorm';
 import { ChannelsService } from '../channels/channels.service';
 import { Channel } from '../channels/entities/channel.entity';
 import { StorageService } from '../storage/storage.service';
+import { ProcessVideoJobData } from '../video-processing/video-processing.constants';
 import { Video, VideoStatus } from './entities/video.entity';
 import { VideosService } from './videos.service';
 import {
+  InvalidUploadPartsException,
   InvalidVideoStatusException,
   VideoNotFoundException,
   VideoTooLargeException,
@@ -55,13 +58,18 @@ describe('VideosService', () => {
     create: jest.Mock;
     save: jest.Mock;
     findOne: jest.Mock;
+    update: jest.Mock;
   };
   let storage: {
     createMultipartUpload: jest.Mock;
     presignUploadPart: jest.Mock;
     listParts: jest.Mock;
     abortMultipartUpload: jest.Mock;
+    completeMultipartUpload: jest.Mock;
+    headObject: jest.Mock;
+    deleteObject: jest.Mock;
   };
+  let queue: { add: jest.Mock };
   let channels: { findByUserId: jest.Mock };
   let service: VideosService;
 
@@ -70,6 +78,7 @@ describe('VideosService', () => {
       create: jest.fn((data: Partial<Video>) => data),
       save: jest.fn((data: Partial<Video>) => Promise.resolve(data)),
       findOne: jest.fn(),
+      update: jest.fn().mockResolvedValue(undefined),
     };
     storage = {
       createMultipartUpload: jest.fn().mockResolvedValue('upload-1'),
@@ -79,7 +88,11 @@ describe('VideosService', () => {
       ),
       listParts: jest.fn(),
       abortMultipartUpload: jest.fn().mockResolvedValue(undefined),
+      completeMultipartUpload: jest.fn().mockResolvedValue(undefined),
+      headObject: jest.fn().mockResolvedValue(11 * MiB),
+      deleteObject: jest.fn().mockResolvedValue(undefined),
     };
+    queue = { add: jest.fn().mockResolvedValue(undefined) };
     channels = {
       findByUserId: jest
         .fn()
@@ -90,6 +103,7 @@ describe('VideosService', () => {
       storage as unknown as StorageService,
       channels as unknown as ChannelsService,
       config,
+      queue as unknown as Queue<ProcessVideoJobData>,
     );
   });
 
@@ -187,6 +201,112 @@ describe('VideosService', () => {
         { part_number: 1, etag: '"e1"', size: 5 * MiB },
       ]);
       expect(state.parts.map((p) => p.part_number)).toEqual([2, 3]);
+    });
+  });
+
+  describe('completeUpload', () => {
+    const dto = { parts: [{ part_number: 1, etag: '"e1"' }] };
+
+    function storageError(name: string): Error {
+      return Object.assign(new Error(name), { name });
+    }
+
+    it('should complete the upload, record the size and enqueue with jobId = video id', async () => {
+      repository.findOne.mockResolvedValue(makeVideo());
+
+      const result = await service.completeUpload('owner', 'video-1', dto);
+
+      expect(result).toEqual({ id: 'video-1', status: VideoStatus.Processing });
+      expect(repository.update).toHaveBeenCalledWith('video-1', {
+        status: VideoStatus.Processing,
+        upload_id: null,
+        size_bytes: String(11 * MiB),
+      });
+      expect(queue.add).toHaveBeenCalledWith(
+        'process-video',
+        { videoId: 'video-1' },
+        expect.objectContaining({ jobId: 'video-1', attempts: 3 }),
+      );
+    });
+
+    it('should re-add the job without completing again when already processing', async () => {
+      repository.findOne.mockResolvedValue(
+        makeVideo({ status: VideoStatus.Processing, upload_id: null }),
+      );
+
+      const result = await service.completeUpload('owner', 'video-1', dto);
+
+      expect(result.status).toBe(VideoStatus.Processing);
+      expect(storage.completeMultipartUpload).not.toHaveBeenCalled();
+      expect(queue.add).toHaveBeenCalledWith(
+        'process-video',
+        { videoId: 'video-1' },
+        expect.objectContaining({ jobId: 'video-1' }),
+      );
+    });
+
+    it.each([VideoStatus.Ready, VideoStatus.Failed])(
+      'should reject completion of a %s video',
+      async (status) => {
+        repository.findOne.mockResolvedValue(
+          makeVideo({ status, upload_id: null }),
+        );
+
+        await expect(
+          service.completeUpload('owner', 'video-1', dto),
+        ).rejects.toBeInstanceOf(InvalidVideoStatusException);
+      },
+    );
+
+    it.each([
+      'InvalidPart',
+      'InvalidPartOrder',
+      'EntityTooSmall',
+      'NoSuchUpload',
+    ])(
+      'should map storage %s to INVALID_UPLOAD_PARTS and keep the draft',
+      async (name) => {
+        repository.findOne.mockResolvedValue(makeVideo());
+        storage.completeMultipartUpload.mockRejectedValue(storageError(name));
+
+        await expect(
+          service.completeUpload('owner', 'video-1', dto),
+        ).rejects.toBeInstanceOf(InvalidUploadPartsException);
+        expect(repository.update).not.toHaveBeenCalled();
+        expect(queue.add).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should propagate unexpected storage errors', async () => {
+      repository.findOne.mockResolvedValue(makeVideo());
+      storage.completeMultipartUpload.mockRejectedValue(
+        storageError('InternalError'),
+      );
+
+      await expect(
+        service.completeUpload('owner', 'video-1', dto),
+      ).rejects.toThrow('InternalError');
+    });
+
+    it('should fail the video and skip the queue when the stored object exceeds the limit', async () => {
+      repository.findOne.mockResolvedValue(makeVideo());
+      storage.headObject.mockResolvedValue(20 * MiB + 1);
+
+      await expect(
+        service.completeUpload('owner', 'video-1', dto),
+      ).rejects.toBeInstanceOf(VideoTooLargeException);
+      expect(storage.deleteObject).toHaveBeenCalledWith(
+        'videos/video-1/original',
+      );
+      expect(repository.update).toHaveBeenCalledWith(
+        'video-1',
+        expect.objectContaining({
+          status: VideoStatus.Failed,
+          upload_id: null,
+          processing_error: expect.any(String) as string,
+        }),
+      );
+      expect(queue.add).not.toHaveBeenCalled();
     });
   });
 });
