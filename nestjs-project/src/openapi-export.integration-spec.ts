@@ -128,4 +128,66 @@ describe('exportSpec (integration)', () => {
       }
     }
   });
+
+  describe('videos', () => {
+    const videoOperations = [
+      { path: '/videos', method: 'post', status: '201', secured: true },
+      {
+        path: '/videos/{id}/upload',
+        method: 'get',
+        status: '200',
+        secured: true,
+      },
+      {
+        path: '/videos/{id}/upload/complete',
+        method: 'post',
+        status: '202',
+        secured: true,
+      },
+      { path: '/videos/{id}', method: 'get', status: '200', secured: true },
+      { path: '/videos/{id}', method: 'delete', status: '204', secured: true },
+      {
+        path: '/videos/{publicId}/stream',
+        method: 'get',
+        status: '302',
+        secured: false,
+      },
+      {
+        path: '/videos/{publicId}/download',
+        method: 'get',
+        status: '302',
+        secured: false,
+      },
+    ];
+
+    const operation = (path: string, method: string) =>
+      (
+        document.paths as Record<
+          string,
+          Record<string, Record<string, unknown>>
+        >
+      )[path]?.[method];
+
+    it.each(videoOperations)(
+      'documents $method $path with its success status',
+      ({ path, method, status }) => {
+        const op = operation(path, method);
+        expect(op).toBeDefined();
+        expect(op?.responses).toHaveProperty(status);
+        expect((op?.summary as string).length).toBeGreaterThan(0);
+      },
+    );
+
+    it.each(videoOperations)(
+      'marks $method $path as secured=$secured',
+      ({ path, method, secured }) => {
+        const security = operation(path, method)?.security as
+          | Array<Record<string, unknown>>
+          | undefined;
+        const requiresToken =
+          security?.some((req) => 'access-token' in req) ?? false;
+        expect(requiresToken).toBe(secured);
+      },
+    );
+  });
 });
