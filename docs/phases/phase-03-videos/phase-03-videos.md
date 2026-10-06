@@ -137,7 +137,7 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 ### SI-03.5 — Endpoint POST /videos e GET /videos/:id/upload (rascunho + upload multipart)
 
 **Route:** POST /videos, GET /videos/:id/upload
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-create.plan.md`
 **Authorization:** Authenticated (POST /videos); Owner (GET /videos/:id/upload)
 
 **Description:** Pré-cadastra o vídeo como `draft` ao iniciar o upload e devolve as URLs assinadas das partes; permite retomar o upload listando as partes já enviadas.
@@ -175,7 +175,7 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 ### SI-03.6 — Endpoint POST /videos/:id/upload/complete (conclusão + enfileiramento)
 
 **Route:** POST /videos/:id/upload/complete
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-upload-complete.plan.md`
 **Authorization:** Owner
 
 **Description:** Conclui o multipart, valida o tamanho real, passa o vídeo para `processing` e publica o job `process-video` na fila, disparando o processamento automático.
@@ -211,7 +211,7 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 ### SI-03.7 — Endpoint GET /videos/:id e DELETE /videos/:id (status do dono e abort)
 
 **Route:** GET /videos/:id, DELETE /videos/:id
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-owner.plan.md`
 **Authorization:** Owner
 
 **Description:** Permite ao dono acompanhar o ciclo de status do vídeo (com metadados e `thumbnail_url`) e abortar um upload não concluído.
@@ -308,7 +308,7 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 ### SI-03.10 — Endpoint GET /videos/:publicId/stream e GET /videos/:publicId/download
 
 **Route:** GET /videos/:publicId/stream, GET /videos/:publicId/download
-**Test Specs:** _pending /plan-test-specs_
+**Test Specs:** see `nestjs-project/specs/videos-stream-download.plan.md`
 **Authorization:** Anonymous (somente vídeos `ready`)
 
 **Description:** Entrega o vídeo por streaming (Range/206 servido pelo storage) e para download, via redirect 302 para URL assinada, sem passar bytes pela API.
@@ -349,7 +349,6 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 2. No setup do e2e, sobrescrever env antes do bootstrap: `VIDEO_UPLOAD_PART_SIZE_BYTES=5242880` (5 MiB), `S3_PUBLIC_ENDPOINT=http://minio:9000` (URLs assinadas alcançáveis de dentro do container); `QUEUE_PREFIX` **não** é sobrescrito — mantém o padrão `bull` para que o `video-worker` real do Compose processe os jobs; fixtures gerados por `test/fixtures/generate-video-fixtures.ts` (SI-03.8) — MP4 `lavfi` com padding até ~11 MiB para forçar multipart real de 3 partes
 3. Criar `test/videos-flow.e2e-spec.ts` — usuário cadastrado/confirmado/logado → `POST /videos` (~11 MiB) → `PUT` das 3 partes nas URLs assinadas coletando as `ETag` → `POST /videos/:id/upload/complete` → polling de `GET /videos/:id` (intervalo 1 s, timeout 60 s) até `ready`, processado pelo serviço `video-worker` real do Compose → `HeadObject` de `videos/{id}/thumbnail.jpg` no bucket → `GET /videos/:publicId/stream` retorna `302` e a `Location` com `Range` retorna `206`
 4. No mesmo arquivo, cenário de falha com o worker real: arquivo sem stream de vídeo → `failed` com `processing_error`
-5. Criar `test/videos-size-limit.e2e-spec.ts` — app com `VIDEO_MAX_SIZE_BYTES` baixo via env (ex.: `8388608`): `POST /videos` acima do limite → `413`; upload real declarado dentro do limite mas com partes que somam acima dele → `complete` retorna `413`, vídeo `failed`, objeto removido e nenhum job enfileirado
 
 **Tests:**
 
@@ -357,7 +356,6 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 |----------|-------|-----------|
 | Fluxo upload → processamento → streaming | E2E (supertest + Redis + MinIO + `video-worker` reais): 3 partes → `ready` + thumbnail no bucket + `302` + `206` | `test/videos-flow.e2e-spec.ts` |
 | Falha de processamento | E2E: arquivo sem stream de vídeo termina `failed` | `test/videos-flow.e2e-spec.ts` |
-| Limite de tamanho | E2E: `413` no `POST /videos` e no `complete` com `VIDEO_MAX_SIZE_BYTES` baixo | `test/videos-size-limit.e2e-spec.ts` |
 
 **Dependencies:** SI-03.7 (status do dono), SI-03.9 (worker no Compose), SI-03.10 (stream)
 
@@ -367,7 +365,6 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 - Após `ready`, `videos/{id}/thumbnail.jpg` existe no bucket e `GET /videos/:id` retorna `thumbnail_url` não nulo
 - `GET /videos/:publicId/stream` retorna `302` e a URL de destino responde `206` a uma requisição com `Range`
 - Um arquivo sem stream de vídeo termina `failed` com `processing_error` preenchido
-- Com `VIDEO_MAX_SIZE_BYTES` reduzido, o objeto que excede o limite é removido do bucket e o vídeo fica `failed`
 - As suítes e2e de vídeo rodam com `npm run test:e2e` sem respostas `429`
 
 ---
