@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -21,6 +22,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ApiErrorEnvelope } from '../common/openapi/api-error-envelope.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateVideoDto } from './dto/create-video.dto';
+import { VideoResponseDto } from './dto/video-response.dto';
 import { VideoProcessingResponseDto } from './dto/video-status-response.dto';
 import {
   UploadStateResponseDto,
@@ -141,5 +143,65 @@ export class VideosController {
     @Body() dto: CompleteUploadDto,
   ): Promise<VideoProcessingResponseDto> {
     return this.videosService.completeUpload(user.sub, id, dto);
+  }
+
+  @Get(':id')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Get a video owned by the caller',
+    description:
+      'Returns the video status lifecycle (draft, processing, ready, failed), extracted metadata and a presigned thumbnail URL once a thumbnail exists.',
+  })
+  @ApiResponse({ status: 200, type: VideoResponseDto })
+  @ApiResponse({ status: 400, description: 'Invalid id', schema: errorSchema })
+  @ApiResponse({
+    status: 401,
+    description: 'Missing or invalid token',
+    schema: errorSchema,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: errorSchema,
+  })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  findOne(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<VideoResponseDto> {
+    return this.videosService.getOwned(user.sub, id);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Abort an unfinished upload',
+    description:
+      'Aborts the multipart upload of a draft video and removes it. Only drafts can be deleted in this phase.',
+  })
+  @ApiResponse({ status: 204, description: 'Draft removed' })
+  @ApiResponse({ status: 400, description: 'Invalid id', schema: errorSchema })
+  @ApiResponse({
+    status: 401,
+    description: 'Missing or invalid token',
+    schema: errorSchema,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: errorSchema,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is not a draft',
+    schema: errorSchema,
+  })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  remove(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.videosService.abort(user.sub, id);
   }
 }

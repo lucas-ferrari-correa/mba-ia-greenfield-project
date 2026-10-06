@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 6/12 completed
+**SIs:** 7/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -53,9 +53,10 @@
   - O commit do SI (`3aa62cd`) foi feito com a suíte unit/integration vermelha por erro de encadeamento de comandos (commit não condicionado ao resultado). Causa: `migrations.integration-spec.ts` (alterado no SI-03.4) derrubava tabelas com `Promise.all`; com a nova FK `videos → channels`, os `DROP ... CASCADE` concorrentes davam deadlock intermitente e deixavam o banco pela metade. Corrigido em commit seguinte (DROPs sequenciais); suíte verde em 3 execuções seguidas (190) e e2e verde (63).
 
 ### SI-03.7 — Endpoint GET /videos/:id e DELETE /videos/:id (status do dono e abort)
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 40 passing em `src/videos` (unit/integration/módulo) + 5 e2e de `test/videos-owner.e2e-spec.ts` (spec `videos-owner.plan.md`); suítes completas verdes
+- **Observations:**
+  - Mapeamento de resposta como `VideosService.getOwned` + `dto/video-response.dto.ts` (com `@ApiProperty`), em vez de função de mapeamento no próprio DTO; `findOwned` (SI-03.5) reaproveitado para o 404 de não-dono.
 
 ### SI-03.8 — Wrapper FFmpeg (ffprobe + thumbnail) e fixtures de vídeo
 - **Status:** pending

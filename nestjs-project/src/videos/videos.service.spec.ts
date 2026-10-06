@@ -59,6 +59,7 @@ describe('VideosService', () => {
     save: jest.Mock;
     findOne: jest.Mock;
     update: jest.Mock;
+    delete: jest.Mock;
   };
   let storage: {
     createMultipartUpload: jest.Mock;
@@ -68,6 +69,7 @@ describe('VideosService', () => {
     completeMultipartUpload: jest.Mock;
     headObject: jest.Mock;
     deleteObject: jest.Mock;
+    presignGetObject: jest.Mock;
   };
   let queue: { add: jest.Mock };
   let channels: { findByUserId: jest.Mock };
@@ -79,6 +81,7 @@ describe('VideosService', () => {
       save: jest.fn((data: Partial<Video>) => Promise.resolve(data)),
       findOne: jest.fn(),
       update: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
     };
     storage = {
       createMultipartUpload: jest.fn().mockResolvedValue('upload-1'),
@@ -91,6 +94,7 @@ describe('VideosService', () => {
       completeMultipartUpload: jest.fn().mockResolvedValue(undefined),
       headObject: jest.fn().mockResolvedValue(11 * MiB),
       deleteObject: jest.fn().mockResolvedValue(undefined),
+      presignGetObject: jest.fn().mockResolvedValue('https://signed/thumb'),
     };
     queue = { add: jest.fn().mockResolvedValue(undefined) };
     channels = {
@@ -307,6 +311,88 @@ describe('VideosService', () => {
         }),
       );
       expect(queue.add).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getOwned', () => {
+    it('should hide videos owned by another user', async () => {
+      repository.findOne.mockResolvedValue(makeVideo());
+
+      await expect(
+        service.getOwned('someone-else', 'video-1'),
+      ).rejects.toBeInstanceOf(VideoNotFoundException);
+    });
+
+    it('should return a null thumbnail_url while there is no thumbnail', async () => {
+      repository.findOne.mockResolvedValue(
+        makeVideo({
+          thumbnail_key: null,
+          size_bytes: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        }),
+      );
+
+      const video = await service.getOwned('owner', 'video-1');
+
+      expect(video.thumbnail_url).toBeNull();
+      expect(storage.presignGetObject).not.toHaveBeenCalled();
+    });
+
+    it('should sign the thumbnail with the public endpoint and the download TTL', async () => {
+      repository.findOne.mockResolvedValue(
+        makeVideo({
+          status: VideoStatus.Ready,
+          thumbnail_key: 'videos/video-1/thumbnail.jpg',
+          size_bytes: String(11 * MiB),
+          created_at: new Date(),
+          updated_at: new Date(),
+        }),
+      );
+
+      const video = await service.getOwned('owner', 'video-1');
+
+      expect(video.thumbnail_url).toBe('https://signed/thumb');
+      expect(video.size_bytes).toBe(11 * MiB);
+      expect(storage.presignGetObject).toHaveBeenCalledWith(
+        'videos/video-1/thumbnail.jpg',
+        { audience: 'public', ttlSeconds: config.downloadUrlTtlSeconds },
+      );
+    });
+  });
+
+  describe('abort', () => {
+    it.each([VideoStatus.Processing, VideoStatus.Ready, VideoStatus.Failed])(
+      'should reject aborting a %s video',
+      async (status) => {
+        repository.findOne.mockResolvedValue(makeVideo({ status }));
+
+        await expect(service.abort('owner', 'video-1')).rejects.toBeInstanceOf(
+          InvalidVideoStatusException,
+        );
+        expect(repository.delete).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should abort the multipart upload and delete the draft', async () => {
+      repository.findOne.mockResolvedValue(makeVideo());
+
+      await service.abort('owner', 'video-1');
+
+      expect(storage.abortMultipartUpload).toHaveBeenCalledWith(
+        'videos/video-1/original',
+        'upload-1',
+      );
+      expect(repository.delete).toHaveBeenCalledWith('video-1');
+    });
+
+    it('should not call storage when the draft has no upload_id', async () => {
+      repository.findOne.mockResolvedValue(makeVideo({ upload_id: null }));
+
+      await service.abort('owner', 'video-1');
+
+      expect(storage.abortMultipartUpload).not.toHaveBeenCalled();
+      expect(repository.delete).toHaveBeenCalledWith('video-1');
     });
   });
 });

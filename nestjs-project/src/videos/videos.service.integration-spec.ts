@@ -173,4 +173,34 @@ describe('VideosService (integration — real DB + MinIO)', () => {
     const jobs = await queue.getJobs(['waiting', 'delayed', 'active']);
     expect(jobs.filter((job) => job.id === draft.id)).toHaveLength(1);
   });
+
+  it('should abort the multipart upload and remove the draft row', async () => {
+    const draft = await service.createDraft(ownerId, dto);
+
+    await service.abort(ownerId, draft.id);
+
+    expect(await videoRepository.findOneBy({ id: draft.id })).toBeNull();
+    const response = await fetch(draft.upload.parts[0].url, {
+      method: 'PUT',
+      body: Buffer.alloc(5 * MiB, 1),
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it('should expose thumbnail_url only once a thumbnail key is stored', async () => {
+    const draft = await service.createDraft(ownerId, dto);
+    expect(
+      (await service.getOwned(ownerId, draft.id)).thumbnail_url,
+    ).toBeNull();
+
+    await videoRepository.update(draft.id, {
+      thumbnail_key: `videos/${draft.id}/thumbnail.jpg`,
+    });
+
+    const url = (await service.getOwned(ownerId, draft.id)).thumbnail_url;
+    expect(url).not.toBeNull();
+    expect(new URL(url as string).pathname).toContain(
+      `videos/${draft.id}/thumbnail.jpg`,
+    );
+  });
 });

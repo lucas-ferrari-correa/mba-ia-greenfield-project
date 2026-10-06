@@ -16,6 +16,7 @@ import {
 } from '../video-processing/video-processing.constants';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateVideoDto } from './dto/create-video.dto';
+import { VideoResponseDto } from './dto/video-response.dto';
 import { VideoProcessingResponseDto } from './dto/video-status-response.dto';
 import {
   PresignedPartDto,
@@ -206,6 +207,46 @@ export class VideosService {
     });
     await this.enqueueProcessing(video.id);
     return { id: video.id, status: VideoStatus.Processing };
+  }
+
+  async getOwned(userId: string, id: string): Promise<VideoResponseDto> {
+    const video = await this.findOwned(userId, id);
+    return {
+      id: video.id,
+      public_id: video.public_id,
+      title: video.title,
+      status: video.status,
+      original_filename: video.original_filename,
+      content_type: video.content_type,
+      size_bytes: video.size_bytes === null ? null : Number(video.size_bytes),
+      duration_seconds: video.duration_seconds,
+      width: video.width,
+      height: video.height,
+      video_codec: video.video_codec,
+      thumbnail_url: video.thumbnail_key
+        ? await this.storageService.presignGetObject(video.thumbnail_key, {
+            audience: 'public',
+            ttlSeconds: this.config.downloadUrlTtlSeconds,
+          })
+        : null,
+      processing_error: video.processing_error,
+      created_at: video.created_at.toISOString(),
+      updated_at: video.updated_at.toISOString(),
+    };
+  }
+
+  async abort(userId: string, id: string): Promise<void> {
+    const video = await this.findOwned(userId, id);
+    if (video.status !== VideoStatus.Draft) {
+      throw new InvalidVideoStatusException();
+    }
+    if (video.upload_id) {
+      await this.storageService.abortMultipartUpload(
+        video.storage_key,
+        video.upload_id,
+      );
+    }
+    await this.videoRepository.delete(video.id);
   }
 
   async findOwned(userId: string, id: string): Promise<Video> {
