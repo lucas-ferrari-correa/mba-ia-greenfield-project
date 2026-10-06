@@ -47,6 +47,9 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (BullMQ + Redis)** — the only option where retries with backoff, idempotent job IDs and an official Nest 11 module come out of the box; the cost is one `redis` container configured with `noeviction` + AOF. pg-boss's transactional enqueue is attractive, but the idempotent `jobId` + retryable "complete upload" endpoint (TD-06) covers the same consistency gap without loading the primary DB.
 
 **Decision:** A (BullMQ on Redis)
+**Libraries:** bullmq@6.3.11, @nestjs/bullmq@12.0.0, ioredis@5.11.1, redis:8.10.2 (Docker image)
+**Revisions:**
+- 2026-10-06 — Library pins fixed; BullMQ 6 makes `ioredis` an optional peer dependency, so it is installed explicitly at the version BullMQ 6.3.11 tests against (5.11.1); Redis runs with `maxmemory-policy noeviction` + `appendonly yes`. Rationale: MD-1 (validation) — libraries pinned via context7 + npm registry, see `library-refs.md`.
 
 ---
 
@@ -75,9 +78,13 @@ _Subprojects in scope:_
 - **Pros:** Simplest client (`<form>`/single `fetch`). Server fully controls size/type validation while streaming.
 - **Cons:** A 10GB request holds an API connection for the whole transfer; no resume on network failure; API bandwidth becomes the bottleneck. This is the pattern the phase explicitly must avoid.
 
-**Recommendation:** **Option A (S3 Multipart with presigned part URLs)** — it is the only option where the API never carries video bytes while still supporting resume, and it works unchanged on MinIO (dev) and S3 (prod). Suggested policy values (to be confirmed): max size `10 GiB` (`10737418240` bytes, env-configurable), fixed part size `100 MiB` (≈103 parts for 10GiB, well inside the 10,000-part limit and the 5MiB minimum part size), presigned part URL TTL `1h` (re-requestable on resume), content-type allowlist validated at initiate (see TD-12 for why). `POST /videos` requires a `title` in the request body (persisted on the draft record), together with file name, size and content type. Size is checked twice: declared at `POST /videos`, actual via `HeadObject` after `CompleteMultipartUpload`.
+**Recommendation:** **Option A (S3 Multipart with presigned part URLs)** — it is the only option where the API never carries video bytes while still supporting resume, and it works unchanged on MinIO (dev) and S3 (prod). Policy values (confirmed 2026-10-06 — see Revisions): max size `10 GiB` (`10737418240` bytes, env-configurable), fixed part size `100 MiB` (≈103 parts for 10GiB, well inside the 10,000-part limit and the 5MiB minimum part size), presigned part URL TTL `1h` (re-requestable on resume), content-type allowlist validated at initiate (see TD-12 for why). `POST /videos` requires a `title` in the request body (persisted on the draft record), together with file name, size and content type. Size is checked twice: declared at `POST /videos`, actual via `HeadObject` after `CompleteMultipartUpload`.
 
 **Decision:** A (S3 Multipart Upload with presigned part URLs)
+**Libraries:** —
+**Revisions:**
+- 2026-10-06 — Policy values confirmed: max size `10 GiB` (`10737418240` bytes, env-configurable), part size `100 MiB`, presigned part URL TTL `1h` (re-requestable on resume). Rationale: AMB-3 — values were marked "to be confirmed".
+- 2026-10-06 — The API is the single owner of the actual-size check: in `POST /videos/:id/upload/complete`, after `HeadObject`, if the real size exceeds the limit the API deletes the object, marks the video `failed` with `processing_error`, responds 4xx and never enqueues; the worker does not validate size. Rationale: IC-1 — TD-02 and TD-13 assigned the check to different components.
 
 ---
 
@@ -104,6 +111,7 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (AWS SDK v3)** — the project's production storage is S3 and TD-02 depends on presigning multipart `UploadPart` and controlling `Create/Complete/Abort/ListParts`, all of which are typed first-class commands in SDK v3; MinIO is only the local S3 stand-in.
 
 **Decision:** A (AWS SDK v3)
+**Libraries:** @aws-sdk/client-s3@3.1146.0, @aws-sdk/s3-request-presigner@3.1146.0
 
 ---
 
@@ -194,6 +202,9 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (API "complete" endpoint enqueues)** — completing an S3 multipart is already an explicit API call in TD-02, so the trigger lives naturally there, keeps dev/prod identical and keeps status transitions inside the videos module. Abandoned drafts are handled in TD-13.
 
 **Decision:** A (Client calls API "complete" endpoint; API completes multipart, validates and enqueues)
+**Libraries:** —
+**Revisions:**
+- 2026-10-06 — Complete flow refined: `CompleteMultipartUpload` → `HeadObject` → if size above limit: delete object, status `failed` + `processing_error`, 4xx, no enqueue; otherwise status `processing` + enqueue (`jobId = videoId`). Route uses the internal UUID (`POST /videos/:id/upload/complete`). Rationale: IC-1 (single size-check owner = API) and AMB-1 (owner routes use UUID).
 
 ---
 
@@ -224,6 +235,7 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (same codebase, `worker.ts` entrypoint, own Compose service)** — matches the diagram's separate container while reusing the existing TypeORM/config/test foundation, and installing FFmpeg in the shared dev image lets real ffprobe/ffmpeg integration tests run in the same container the suite already uses.
 
 **Decision:** A (Same NestJS codebase, separate entrypoint and Compose service)
+**Libraries:** ffmpeg 7:5.1.9-0+deb12u1 (Debian bookworm apt package on `node:25.6.0-slim`)
 
 ---
 
@@ -254,6 +266,9 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (apt FFmpeg + `spawn` wrapper)** — the only option with no unmaintained/third-party binary dependency; the wrapper is a few dozen lines and is tested for real against FFmpeg in the container (TD-07).
 
 **Decision:** A (System binaries via apt + child_process.spawn)
+**Libraries:** ffmpeg 7:5.1.9-0+deb12u1 (provides `ffmpeg` + `ffprobe`; Debian bookworm apt)
+**Revisions:**
+- 2026-10-06 — Persisted metadata fixed: typed columns `duration_seconds`, `width`, `height`, `video_codec`, `size_bytes`, plus the raw ffprobe JSON in a `metadata jsonb` column. Rationale: AMB-5 — persisted metadata fields and storage shape were undefined.
 
 ---
 
@@ -279,6 +294,9 @@ _Subprojects in scope:_
 **Recommendation:** **Option B (presigned URL as FFmpeg input)** — the phase only needs metadata and one frame, so streaming the needed ranges avoids moving 10GB per job; transient network errors are absorbed by the job retry policy.
 
 **Decision:** B (FFmpeg reads the object via presigned GET URL)
+**Libraries:** —
+**Revisions:**
+- 2026-10-06 — Worker input presigned GET URL TTL fixed at `15min` (env-configurable). Rationale: AMB-4 — TTL was not fixed.
 
 ---
 
@@ -341,6 +359,9 @@ _Subprojects in scope:_
 **Recommendation:** **Option B (11-char base62 via `node:crypto`, unique column + retry)** — short and non-enumerable as §4 asks, uniqueness guaranteed by the DB index, no ESM-only dependency; the UUID stays as internal PK and storage key (TD-04).
 
 **Decision:** B (Random base62 short ID, 11 chars, via node:crypto)
+**Libraries:** —
+**Revisions:**
+- 2026-10-06 — Route identifiers fixed: owner routes use the internal UUID (`GET /videos/:id`, `POST /videos/:id/upload/complete`, `DELETE /videos/:id`); public routes use the `public_id` (`GET /videos/:publicId/stream`, `GET /videos/:publicId/download`). Rationale: AMB-1 — path identifier for owner endpoints was undefined.
 
 ---
 
@@ -368,9 +389,13 @@ _Subprojects in scope:_
 - **Pros:** Adaptive bitrate, universal codec compatibility.
 - **Cons:** Requires transcoding/segmenting (heavy CPU, multiplied storage) — not a Phase 03 capability; large scope increase.
 
-**Recommendation:** **Option A (presigned GET + 302 from API, `Content-Disposition: attachment` for download)** — storage already implements Range/206, so streaming and download need no bytes through the API; to mitigate the as-is codec limitation, TD-02 restricts accepted content types to browser-playable containers (`video/mp4`, `video/webm`) and the worker marks videos without a video stream as `failed`. **Access rule (input for the Authorization Matrix):** `stream` and `download` are public (anonymous allowed) only when the video status is `ready`; for `draft`, `processing` or `failed` only the owner (authenticated user who owns the video's channel) may access, and any other caller (anonymous or non-owner) receives `404` (the video's existence is not revealed).
+**Recommendation:** **Option A (presigned GET + 302 from API, `Content-Disposition: attachment` for download)** — storage already implements Range/206, so streaming and download need no bytes through the API; to mitigate the as-is codec limitation, TD-02 restricts accepted content types to browser-playable containers (`video/mp4`, `video/webm`) and the worker marks videos without a video stream as `failed`. **Access rule (input for the Authorization Matrix):** `stream` and `download` are public (anonymous, no authentication) and respond only when the video status is `ready`; for `draft`, `processing` or `failed` they respond `404` to everyone, including the owner. The owner follows the status through the authenticated `GET /videos/:id` (UUID). No optional-authentication mode is needed in the guard (a `<video src>` does not send `Authorization` anyway).
 
 **Decision:** A (Presigned GET URLs served by storage, API redirects)
+**Libraries:** —
+**Revisions:**
+- 2026-10-06 — Access rule simplified: stream/download public only in `ready`, `404` for everyone otherwise (owner included); owner status via authenticated `GET /videos/:id`; no optional auth. Rationale: AMB-2 + DG-1 — owner access outside `ready` had undefined responses and required an optional-auth guard mode not provided by phase-02-auth.
+- 2026-10-06 — Presigned GET TTLs fixed (env-configurable): stream `6h`, download `1h`. Rationale: AMB-4 — TTL was not fixed.
 
 ---
 
@@ -385,7 +410,7 @@ _Subprojects in scope:_
 **Options:**
 
 ### Option A: Single processing-lifecycle enum `draft → processing → ready | failed` + bounded retries
-- `draft` (created, upload in progress), `processing` (set by the complete endpoint), `ready` (metadata + thumbnail stored), `failed` (+ `processing_error` text). Job options `attempts: 3`, exponential backoff; deterministic errors (no video stream, unreadable file, size above limit) thrown as BullMQ `UnrecoverableError` to skip retries; only the final failure sets `failed`. Processor is idempotent (re-running overwrites thumbnail/metadata). Fase 04 adds publication as an orthogonal field (e.g., visibility/`published_at`), not new values in this enum.
+- `draft` (created, upload in progress), `processing` (set by the complete endpoint), `ready` (metadata + thumbnail stored), `failed` (+ `processing_error` text). Job options `attempts: 3`, exponential backoff; deterministic errors (no video stream, unreadable file) thrown as BullMQ `UnrecoverableError` to skip retries; only the final failure sets `failed`. Processor is idempotent (re-running overwrites thumbnail/metadata). Fase 04 adds publication as an orthogonal field (e.g., visibility/`published_at`), not new values in this enum.
 - **Pros:** Matches the lifecycle stated for the phase; one column to query; retries absorb transient storage/network errors (TD-09).
 - **Cons:** "draft" here means "not processed yet"; Fase 04's publication "rascunho" will be a separate concept and must be named carefully to avoid confusion.
 
@@ -400,6 +425,9 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (`draft → processing → ready | failed`, 3 attempts w/ exponential backoff, `UnrecoverableError` for deterministic failures)** — every state has a clear writer in the chosen flow and Fase 04 can add publication orthogonally. Abandoned uploads: MinIO does **not** support the `AbortIncompleteMultipartUpload` lifecycle action (MinIO S3 compatibility docs), so Phase 03 includes an **explicit owner-initiated abort**: `DELETE /videos/:id` on a video in `draft` calls `AbortMultipartUpload` and removes the video record (only the owning channel's user; videos in other statuses are not deletable through this path in Phase 03). **Automatic cleanup of abandoned drafts is out of Phase 03 scope — recorded as deferred.**
 
 **Decision:** A (Single enum draft → processing → ready | failed + bounded retries)
+**Libraries:** —
+**Revisions:**
+- 2026-10-06 — Size-limit check removed from the worker's deterministic errors; an oversized upload never reaches the queue (the API marks it `failed` in `upload/complete`, see TD-02/TD-06). Rationale: IC-1 — single owner of the size check is the API.
 
 ---
 
@@ -427,7 +455,10 @@ _Subprojects in scope:_
 
 **Recommendation:** **Option A (pin last official MinIO release tag)** — for a dev/test-only S3 stand-in, an official frozen build is the lowest-risk, zero-maintenance choice; the exact tags are fixed (and verified pullable) in `library-refs.md` during `plan-resolve`.
 
-**Decision:** A (Pin last official MinIO release tag)
+**Decision:** B (Community-maintained rebuild of MinIO — `coollabsio/minio:RELEASE.2025-10-15T17-29-55Z`)
+**Libraries:** coollabsio/minio:RELEASE.2025-10-15T17-29-55Z (Docker image; bundles `mc` at `/usr/bin/mc`, used for both the server and the bucket-init service)
+
+**Note:** Decision deliberately diverged from the Recommendation during `plan-resolve` (2026-10-06) — Option A became infeasible: `docker pull minio/minio` and `docker pull minio/mc` fail with "pull access denied … repository does not exist" (repositories removed from Docker Hub) and `quay.io/minio/minio` requires authentication. The community rebuild of the 2025-10-15 security release was pulled successfully and verified (`minio version RELEASE.2025-10-15T17-29-55Z`, `mc` present). Dev/test-only exposure; production uses AWS S3.
 
 ---
 
@@ -448,4 +479,4 @@ _Subprojects in scope:_
 | TD-11 | Backend | Unique Public Video Identifier | B — 11-char base62 via `node:crypto` + unique index | B (Random base62 short ID, 11 chars, via node:crypto) |
 | TD-12 | Backend | Streaming and Download Delivery | A — Presigned GET + 302 (Range/206 by storage) | A (Presigned GET URLs served by storage, API redirects) |
 | TD-13 | Backend | Status Lifecycle & Failure Handling | A — `draft → processing → ready \| failed`, 3 attempts | A (Single enum draft → processing → ready \| failed + bounded retries) |
-| TD-14 | Repo-wide | Local S3-Compatible Storage Image | A — Pin last official MinIO release tag | A (Pin last official MinIO release tag) |
+| TD-14 | Repo-wide | Local S3-Compatible Storage Image | A — Pin last official MinIO release tag | B (Community-maintained rebuild — coollabsio/minio:RELEASE.2025-10-15T17-29-55Z) |
