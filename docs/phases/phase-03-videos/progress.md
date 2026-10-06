@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 3/12 completed
+**SIs:** 4/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -26,9 +26,12 @@
   - Clientes injetados por tokens (`S3_CLIENT`, `S3_SIGNING_CLIENT`) em `storage.constants.ts`; objetos de teste vão para o prefixo `test/<uuid>/` e são removidos no `afterAll`.
 
 ### SI-03.4 — Entidade Video, migration e gerador de public_id
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 9 passing (`video.entity.integration-spec.ts`, `public-id.util.spec.ts`, `migrations.integration-spec.ts`); suíte unit/integration completa verde (165)
+- **Observations:**
+  - Ação 2 (`OneToMany(() => Video)` em `Channel`) não aplicada, com aprovação do usuário: o lado inverso obrigaria incluir `Video` nos entity arrays explícitos de 11 testes existentes (auth, users, channels, migrations); nenhum SI da fase usa `channel.videos`. A relação fica apenas `ManyToOne` Video → Channel.
+  - Migration gerada pelo CLI (`migration:generate`), com `enumName: 'video_status'` na entidade para o tipo bater com o Data Model.
+  - O teste de migrations agora reverte a última migration (`CreateVideos`) e verifica a remoção da tabela `videos` e do tipo `video_status`.
 
 ### SI-03.5 — Endpoint POST /videos e GET /videos/:id/upload (rascunho + upload multipart)
 - **Status:** pending
