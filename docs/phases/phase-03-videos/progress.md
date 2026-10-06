@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 2/12 completed
+**SIs:** 3/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -19,9 +19,11 @@
   - Redis sem porta publicada no host: a 6379 do host já está ocupada por outro container e nenhum consumidor fora da rede do Compose precisa dela.
 
 ### SI-03.3 — Módulo de storage (S3/MinIO)
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 8 passing (`src/storage/storage.service.integration-spec.ts`, `src/storage/storage.module.spec.ts`); suíte unit/integration completa verde (158)
+- **Observations:**
+  - Os dois `S3Client` usam `requestChecksumCalculation`/`responseChecksumValidation: 'WHEN_REQUIRED'`: desde o SDK 3.729 o cliente calcula CRC32 por padrão em `UploadPart`, o que não cabe em URLs assinadas cujo corpo é enviado pelo cliente (doc AWS SDK, issue 6810).
+  - Clientes injetados por tokens (`S3_CLIENT`, `S3_SIGNING_CLIENT`) em `storage.constants.ts`; objetos de teste vão para o prefixo `test/<uuid>/` e são removidos no `afterAll`.
 
 ### SI-03.4 — Entidade Video, migration e gerador de public_id
 - **Status:** pending
