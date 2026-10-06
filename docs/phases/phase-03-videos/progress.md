@@ -75,6 +75,7 @@
   - Gravação do estado `ready` usa `save()` em vez de `update()`: o tipo de `update()` do TypeORM não aceita a coluna `jsonb` (`metadata`).
   - `WorkerModule` registra as entidades `Video`, `Channel` e `User` explicitamente (a cadeia de relações exige as três) em vez de `autoLoadEntities`.
   - API e worker compartilham o bind mount e o `dist/`; se o dev server da API (`start:dev`) e o worker rodarem em watch ao mesmo tempo, ambos compilam para o mesmo `dist/`.
+  - Corrigido após o SI (pedido do usuário, commit próprio): com `deleteOutDir: true`, os dois `nest start --watch` apagavam o build um do outro. O worker agora compila com `tsconfig.worker.json` (estende `tsconfig.build.json`, `outDir: dist-worker`) via `nest start --path tsconfig.worker.json` — a doc do Nest CLI (context7) confirma que `--path` escolhe o tsconfig e que `deleteOutDir` remove só o `outDir` desse tsconfig. `start:worker:prod` aponta para `dist-worker/worker`; `dist-worker` no `.gitignore` e no `exclude` de `tsconfig.json`/`tsconfig.build.json`. Verificado: `docker compose down && docker compose up -d` sobe API e worker; com API em `start:dev` e worker em watch, editar `src/app.service.ts` recompila e reinicia o worker em `dist-worker/` sem apagar o `dist/` da API (que segue respondendo 200). Um `touch` feito no host não dispara o watch (eventos de arquivo do bind mount do Docker Desktop); a edição de conteúdo dentro do container dispara.
 
 ### SI-03.10 — Endpoint GET /videos/:publicId/stream e GET /videos/:publicId/download
 - **Status:** completed
