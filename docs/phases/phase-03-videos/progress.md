@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 1/12 completed
+**SIs:** 2/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -11,9 +11,12 @@
   - `.env` local (ignorado pelo git) recebeu as mesmas novas chaves do `.env.example` para que app e testes continuem subindo.
 
 ### SI-03.2 — Infra: Redis, MinIO, inicialização do bucket e FFmpeg no Docker
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** no tests (Infra) — ACs verificados manualmente; suíte existente verde (150 unit/integration, 52 e2e)
+- **Observations:**
+  - Healthcheck do `minio` usa `mc ready local` (via `MC_HOST_local`) porque a imagem `coollabsio/minio` não traz `curl`; `/minio/health/live` segue sendo o endpoint que o `mc ready` consulta.
+  - CORS: `MINIO_API_CORS_ALLOW_ORIGIN=*`; verificado que a resposta expõe `Etag` em `Access-Control-Expose-Headers` e que o preflight `PUT` é aceito.
+  - Redis sem porta publicada no host: a 6379 do host já está ocupada por outro container e nenhum consumidor fora da rede do Compose precisa dela.
 
 ### SI-03.3 — Módulo de storage (S3/MinIO)
 - **Status:** pending

@@ -1,9 +1,9 @@
 FROM node:25.6.0-slim
 
-RUN apt update && apt install -y procps curl
+RUN apt update && apt install -y procps curl ffmpeg=7:5.1.9-0+deb12u1
 
 WORKDIR /home/node/app
 
 USER node
 
-CMD [ "tail", "-f", "/dev/null" ] 
+CMD [ "tail", "-f", "/dev/null" ]
