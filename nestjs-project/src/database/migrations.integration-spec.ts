@@ -37,18 +37,15 @@ describe('Database migrations (integration)', () => {
 
     await dataSource.initialize();
 
-    await Promise.all([
-      ...MANAGED_TABLES.map((table) =>
-        dataSource.query(`DROP TABLE IF EXISTS "${table}" CASCADE`),
-      ),
-      dataSource.query(`DROP TABLE IF EXISTS "migrations" CASCADE`),
-    ]);
+    // Sequential on purpose: concurrent DROP ... CASCADE across tables linked
+    // by foreign keys (videos -> channels -> users) can deadlock.
+    for (const table of [...MANAGED_TABLES, 'migrations']) {
+      await dataSource.query(`DROP TABLE IF EXISTS "${table}" CASCADE`);
+    }
     // Enum types outlive their tables; leftovers make CREATE TYPE fail on re-run.
-    await Promise.all(
-      MANAGED_ENUM_TYPES.map((type) =>
-        dataSource.query(`DROP TYPE IF EXISTS "${type}" CASCADE`),
-      ),
-    );
+    for (const type of MANAGED_ENUM_TYPES) {
+      await dataSource.query(`DROP TYPE IF EXISTS "${type}" CASCADE`);
+    }
   });
 
   afterAll(async () => {

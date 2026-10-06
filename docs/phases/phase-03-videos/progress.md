@@ -50,6 +50,7 @@
   - Fila, nome do job, payload e opções ficam em `src/video-processing/video-processing.constants.ts`, compartilhado entre API (produtor) e worker (SI-03.9).
   - Testes de integração e e2e usam `QUEUE_PREFIX` isolado e fazem `obliterate` da fila no `afterAll`, para não deixar chaves no Redis compartilhado.
   - Um `prettier --write src` reformatou sem querer os templates `.hbs` de e-mail; revertido antes do commit.
+  - O commit do SI (`3aa62cd`) foi feito com a suíte unit/integration vermelha por erro de encadeamento de comandos (commit não condicionado ao resultado). Causa: `migrations.integration-spec.ts` (alterado no SI-03.4) derrubava tabelas com `Promise.all`; com a nova FK `videos → channels`, os `DROP ... CASCADE` concorrentes davam deadlock intermitente e deixavam o banco pela metade. Corrigido em commit seguinte (DROPs sequenciais); suíte verde em 3 execuções seguidas (190) e e2e verde (63).
 
 ### SI-03.7 — Endpoint GET /videos/:id e DELETE /videos/:id (status do dono e abort)
 - **Status:** pending
