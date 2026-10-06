@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 4/12 completed
+**SIs:** 5/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -34,9 +34,13 @@
   - O teste de migrations agora reverte a última migration (`CreateVideos`) e verifica a remoção da tabela `videos` e do tipo `video_status`.
 
 ### SI-03.5 — Endpoint POST /videos e GET /videos/:id/upload (rascunho + upload multipart)
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 45 passing nos arquivos do SI (unit/integration/módulo de `src/videos` e `src/channels`) + 6 e2e de `test/videos-create.e2e-spec.ts` (spec `videos-create.plan.md`); suítes completas verdes (178 unit/integration, 58 e2e)
+- **Observations:**
+  - Anotações `@nestjs/swagger` aplicadas já no `VideosController` e nos DTOs de resposta (`dto/upload-session.dto.ts`), seguindo `.claude/rules/nestjs-controllers.md` (endpoint sem OpenAPI é incompleto); o SI-03.12 fica com o export do `openapi.json` e o CLAUDE.md.
+  - `test/helpers/videos-e2e.setup.ts` (planejado no SI-03.11) criado agora, porque os e2e gerados pelos specs dos SIs de endpoint precisam do mesmo bootstrap (overrides de env, `QUEUE_PREFIX` isolado, limpeza do throttler, usuário confirmado).
+  - `createDraft` aborta o multipart se o insert do rascunho falhar, para não deixar upload órfão no bucket.
+  - Correção fora do escopo do SI, em commit próprio (`8c41191`): `npm run test:e2e` não tinha `--runInBand` (o `nestjs-project/CLAUDE.md` já dizia que tinha); com 4 suítes no mesmo banco, auth e videos apagavam os dados umas das outras.
 
 ### SI-03.6 — Endpoint POST /videos/:id/upload/complete (conclusão + enfileiramento)
 - **Status:** pending
