@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 10/12 completed
+**SIs:** 11/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -85,9 +85,12 @@
   - O teste de download usa `GET` na URL assinada: a assinatura cobre o método HTTP, então um `HEAD` responde 403.
 
 ### SI-03.11 — Teste e2e do fluxo completo de vídeo (fila, worker e MinIO reais)
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 2 e2e em `test/videos-flow.e2e-spec.ts` contra o `video-worker` real do Compose (upload de ~11,2 MiB em 3 partes → `ready` com metadados e thumbnail → stream `302` → `206`; arquivo sem stream de vídeo → `failed`); suítes completas verdes
+- **Observations:**
+  - `test/helpers/videos-e2e.setup.ts` já existia desde o SI-03.5 (ação 1 antecipada); este SI usa `bootstrapVideosApp({ QUEUE_PREFIX: undefined })` para manter o prefixo padrão e deixar o worker real consumir os jobs.
+  - O MP4 de ~11 MiB é gerado no teste com `generateMp4(..., { durationSeconds: 4, bitrate: '24M' })`; `-x264-params nal-hrd=cbr` foi adicionado ao gerador para o bitrate constante atingir o tamanho alvo.
+  - Objetos criados no bucket (original e thumbnail) são removidos no `afterAll`.
 
 ### SI-03.12 — OpenAPI e documentação de IA (CLAUDE.md) da fase de vídeos
 - **Status:** pending

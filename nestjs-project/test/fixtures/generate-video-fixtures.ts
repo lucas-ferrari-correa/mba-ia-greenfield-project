@@ -41,6 +41,9 @@ export function generateMp4(
         bitrate,
         '-bufsize',
         bitrate,
+        // CBR with filler data so the output reaches the target size.
+        '-x264-params',
+        'nal-hrd=cbr',
       ]
     : [];
   ffmpeg([
