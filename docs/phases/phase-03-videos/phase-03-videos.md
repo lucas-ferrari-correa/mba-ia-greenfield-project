@@ -113,7 +113,7 @@ Deliver video upload of up to 10GB directly to object storage without passing by
 2. Adicionar `OneToMany(() => Video)` em `src/channels/entities/channel.entity.ts`
 3. Criar `src/database/migrations/<timestamp>-CreateVideos.ts` — cria o tipo `video_status`, a tabela `videos`, índice único em `public_id`, índice em `channel_id` e FK `channel_id → channels.id ON DELETE CASCADE`; `down` remove tabela e tipo
 4. Criar `src/videos/public-id.util.ts` — `generatePublicId()` com 11 caracteres de `[0-9A-Za-z]` via `crypto.randomInt` (sem dependência) (per `phase-03-videos/TD-11`)
-5. Garantir que `src/database/data-source.ts` e o `createTestDataSource` dos testes enxerguem a nova entidade (mesmo mecanismo usado para `User`/`Channel`) e incluir `DELETE FROM "videos"` em `cleanAllTables` (`src/test/create-test-data-source.ts`) antes de `DELETE FROM "channels"`
+5. Garantir que `src/database/data-source.ts` e o `createTestDataSource` dos testes enxerguem a nova entidade (mesmo mecanismo usado para `User`/`Channel`)
 
 **Tests:**
 
