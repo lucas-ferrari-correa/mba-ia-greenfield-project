@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 8/12 completed
+**SIs:** 9/12 completed
 
 ### SI-03.1 — Infra: Dependências e namespaces de configuração (storage, fila, vídeo)
 - **Status:** completed
@@ -66,9 +66,15 @@
   - `test/fixtures/generate-video-fixtures.ts` também exporta `generateMp4(path, { durationSeconds, bitrate })` para o SI-03.11 gerar o MP4 de ~11 MiB com bitrate constante.
 
 ### SI-03.9 — Video worker: entrypoint, processor e serviço no Compose
-- **Status:** pending
-- **Tests:** —
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 20 passing em `src/video-processing` (processor unit/integration, módulo, ffmpeg); suítes completas verdes; `video-worker` sobe no Compose e conecta ao Redis
+- **Observations:**
+  - Regra de falha final confirmada na doc do BullMQ (context7): `attemptsMade` começa em 0 e só incrementa na falha, então `attemptsMade + 1 >= opts.attempts` identifica a última tentativa.
+  - Só erros do `probe` (`NoVideoStreamError`, `MediaProbeError`) viram `UnrecoverableError`; falhas na extração do thumbnail ou no storage seguem o retry com backoff.
+  - `bullRootOptions` (`src/video-processing/queue.options.ts`) compartilhado entre `AppModule` e `WorkerModule`, garantindo o mesmo `prefix` na API e no worker.
+  - Gravação do estado `ready` usa `save()` em vez de `update()`: o tipo de `update()` do TypeORM não aceita a coluna `jsonb` (`metadata`).
+  - `WorkerModule` registra as entidades `Video`, `Channel` e `User` explicitamente (a cadeia de relações exige as três) em vez de `autoLoadEntities`.
+  - API e worker compartilham o bind mount e o `dist/`; se o dev server da API (`start:dev`) e o worker rodarem em watch ao mesmo tempo, ambos compilam para o mesmo `dist/`.
 
 ### SI-03.10 — Endpoint GET /videos/:publicId/stream e GET /videos/:publicId/download
 - **Status:** pending

@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { bullRootOptions } from './video-processing/queue.options';
 import { VideosModule } from './videos/videos.module';
 import appConfig from './config/app.config';
 import authConfig from './config/auth.config';
@@ -49,10 +50,7 @@ import { envValidationSchema } from './config/env.validation';
     }),
     BullModule.forRootAsync({
       inject: [queueConfig.KEY],
-      useFactory: (queue: ConfigType<typeof queueConfig>) => ({
-        connection: { host: queue.redisHost, port: queue.redisPort },
-        prefix: queue.prefix,
-      }),
+      useFactory: bullRootOptions,
     }),
     AuthModule,
     VideosModule,
